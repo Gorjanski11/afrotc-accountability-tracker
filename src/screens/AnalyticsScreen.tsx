@@ -7,7 +7,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { BarChart2, TrendingUp, Scale, PieChart, Table2, Users, Gauge, TriangleAlert, CalendarDays } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { PMT_EVENT_TYPES, bucketForEventType, type PmtEventType } from "../domain/constants";
+import { PMT_EVENT_TYPES, FLIGHTS, bucketForEventType, type PmtEventType, type Flight } from "../domain/constants";
 import { computeCadetAttendanceSummary, computeCombinedPercent } from "../domain/attendance";
 import {
   computeSessionTrend,
@@ -19,6 +19,7 @@ import {
   type UnitAxis,
 } from "../domain/analytics";
 import { compareByLastName } from "../domain/nameUtils";
+import { CadetFilterCombobox, ALL_CADETS } from "../components/CadetFilterCombobox";
 import type { Attendance, PmtEvent, RosterPerson } from "../domain/types";
 
 interface Props {
@@ -69,14 +70,13 @@ function pct(n: number | undefined): string {
   return n === undefined ? "—" : `${Math.round(n * 100)}%`;
 }
 
-const ALL_CADETS = "__all__";
-
 export function AnalyticsScreen({ roster, events, attendance }: Props) {
   const [trendBucket, setTrendBucket] = useState<TrendBucket>("ALL");
   const [trendCadetId, setTrendCadetId] = useState<string>(ALL_CADETS);
   const [axis, setAxis] = useState<UnitAxis>("flight");
   const [tableType, setTableType] = useState<PmtEventType>("PT");
   const [tableCadetId, setTableCadetId] = useState<string>(ALL_CADETS);
+  const [tableFlight, setTableFlight] = useState<Flight | "All">("All");
 
   const activeRoster = useMemo(() => roster.filter((p) => p.status === "Active"), [roster]);
   const sortedActiveRoster = useMemo(() => [...activeRoster].sort((a, b) => compareByLastName(a.name, b.name)), [activeRoster]);
@@ -89,15 +89,17 @@ export function AnalyticsScreen({ roster, events, attendance }: Props) {
         : computeCadetSessionTrend(trendBucket, trendCadetId, attendance, events),
     [trendBucket, trendCadetId, activeRoster, attendance, events]
   );
-  const trendData = useMemo(
-    () =>
-      trend.map((t) => ({
-        ...t,
-        dateLabel: new Date(t.date).toLocaleDateString(undefined, { month: "short", day: "numeric" }),
-        percentPct: t.percent === undefined ? null : Math.round(t.percent * 100),
-      })),
-    [trend]
-  );
+  const trendData = useMemo(() => {
+    const mapped = trend.map((t) => ({
+      ...t,
+      dateLabel: new Date(t.date).toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+      percentPct: t.percent === undefined ? null : Math.round(t.percent * 100),
+    }));
+    // Cut the line at the last PMT that actually has attendance entered -- don't stretch the
+    // chart out through future/unscheduled sessions that have no data yet.
+    const lastEnteredIndex = mapped.reduce((last, point, i) => (point.percentPct !== null ? i : last), -1);
+    return mapped.slice(0, lastEnteredIndex + 1);
+  }, [trend]);
 
   const comparison = useMemo(
     () => computeUnitComparison(activeRoster, attendance, pmtEventsById, (p) => unitOfAxis(axis, p)),
@@ -137,8 +139,11 @@ export function AnalyticsScreen({ roster, events, attendance }: Props) {
     [events, tableType]
   );
   const tableRoster = useMemo(
-    () => sortedActiveRoster.filter((c) => tableCadetId === ALL_CADETS || c.id === tableCadetId),
-    [sortedActiveRoster, tableCadetId]
+    () =>
+      sortedActiveRoster
+        .filter((c) => tableCadetId === ALL_CADETS || c.id === tableCadetId)
+        .filter((c) => tableFlight === "All" || c.flight === tableFlight),
+    [sortedActiveRoster, tableCadetId, tableFlight]
   );
   const cellByKey = useMemo(() => {
     const map = new Map<string, Attendance>();
@@ -175,19 +180,7 @@ export function AnalyticsScreen({ roster, events, attendance }: Props) {
                 Attendance trend
               </CardTitle>
               <div className="flex items-center gap-2">
-                <Select value={trendCadetId} onValueChange={setTrendCadetId}>
-                  <SelectTrigger className="w-44">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={ALL_CADETS}>All cadets (cohort)</SelectItem>
-                    {sortedActiveRoster.map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <CadetFilterCombobox roster={sortedActiveRoster} value={trendCadetId} onChange={setTrendCadetId} allLabel="All cadets (cohort)" />
                 <Select value={trendBucket} onValueChange={(v) => setTrendBucket(v as TrendBucket)}>
                   <SelectTrigger className="w-40">
                     <SelectValue />
@@ -312,15 +305,16 @@ export function AnalyticsScreen({ roster, events, attendance }: Props) {
               Master attendance table
             </CardTitle>
             <div className="flex items-center gap-2">
-              <Select value={tableCadetId} onValueChange={setTableCadetId}>
-                <SelectTrigger className="w-44">
-                  <SelectValue />
+              <CadetFilterCombobox roster={sortedActiveRoster} value={tableCadetId} onChange={setTableCadetId} allLabel="All cadets" />
+              <Select value={tableFlight} onValueChange={(v) => setTableFlight(v as Flight | "All")}>
+                <SelectTrigger className="w-28">
+                  <SelectValue placeholder="Flight" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={ALL_CADETS}>All cadets</SelectItem>
-                  {sortedActiveRoster.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name}
+                  <SelectItem value="All">All flights</SelectItem>
+                  {FLIGHTS.map((f) => (
+                    <SelectItem key={f} value={f}>
+                      {f} Flight
                     </SelectItem>
                   ))}
                 </SelectContent>
