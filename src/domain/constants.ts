@@ -1,0 +1,83 @@
+// Mirrors the relevant subset of afrotc-training-tracker's constants -- separate repo, same
+// Firebase project, so these are duplicated rather than imported across repos.
+
+export const AS_LEVELS = ["AS100", "AS200", "AS250", "AS300", "AS400", "AS500", "AS600"] as const;
+export type AsLevel = (typeof AS_LEVELS)[number];
+
+export const ROSTER_CLASSES = ["Cadre", "POC", "GMC"] as const;
+export type RosterClass = (typeof ROSTER_CLASSES)[number];
+
+// AS Level -> Class auto-derivation (Cadre is always a manual override, checked first by the caller).
+const GMC_AS_LEVELS: readonly AsLevel[] = ["AS100", "AS200", "AS250", "AS500"];
+
+export function deriveClass(asLevel: AsLevel | undefined, isCadre: boolean): RosterClass {
+  if (isCadre) return "Cadre";
+  if (asLevel && GMC_AS_LEVELS.includes(asLevel)) return "GMC";
+  return "POC";
+}
+
+export const FLIGHTS = ["M", "N", "O", "P"] as const;
+export type Flight = (typeof FLIGHTS)[number];
+
+export const GROUPS = ["CWL", "TRG", "OG", "MSG", "WSG"] as const;
+export type Group = (typeof GROUPS)[number];
+
+export const CADET_STATUSES = ["Active", "Inactive", "Commissioned"] as const;
+export type CadetStatus = (typeof CADET_STATUSES)[number];
+
+// PMT event types -- shared pmtEvents collection with the TO's site. "D&C" is this system's
+// "Other" catch-all bucket (Section 3.1): tracked for attendance but carries no percentage
+// threshold of its own.
+export const PMT_EVENT_TYPES = ["PT", "LLAB", "FM", "D&C"] as const;
+export type PmtEventType = (typeof PMT_EVENT_TYPES)[number];
+
+export const EXTRA_EVENT_TYPES = ["Extra PT", "Extra D&C", "Reposition", "Bonding"] as const;
+export type ExtraEventType = (typeof EXTRA_EVENT_TYPES)[number];
+
+/** Post-Accountability status per cadet per PMT. */
+export const ATTENDANCE_STATUSES = ["P", "L", "A", "AE", "PE"] as const;
+export type AttendanceStatus = (typeof ATTENDANCE_STATUSES)[number];
+
+export const ATTENDANCE_STATUS_LABELS: Record<AttendanceStatus, string> = {
+  P: "Present",
+  L: "Late",
+  A: "Absent",
+  AE: "Approved Excuse",
+  PE: "Pending Excuse",
+};
+
+/**
+ * Weight per status for percentage math. AE/PE are `undefined` -- excluded entirely from both the
+ * numerator and denominator, not counted as 0 (Section 5): an excused absence shrinks the total
+ * events measured rather than counting against the cadet.
+ */
+export const ATTENDANCE_WEIGHT: Record<AttendanceStatus, number | undefined> = {
+  P: 1,
+  L: 0.5,
+  A: 0,
+  AE: undefined,
+  PE: undefined,
+};
+
+export const ABSENCE_REASONS = ["Academics", "Medical", "Personal", "Work/Job", "Other"] as const;
+export type AbsenceReason = (typeof ABSENCE_REASONS)[number];
+
+/** Percentage bucket for threshold purposes (Section 5): PT stands alone, LLAB+FM are combined. D&C ("Other") has no threshold. */
+export type AttendanceBucket = "PT" | "LLAB_FM" | "OTHER";
+
+export function bucketForEventType(eventType: PmtEventType): AttendanceBucket {
+  if (eventType === "PT") return "PT";
+  if (eventType === "LLAB" || eventType === "FM") return "LLAB_FM";
+  return "OTHER";
+}
+
+export type Standing = "Good" | "Warning" | "Hard Limit";
+
+export const STANDING_THRESHOLDS = { good: 0.85, warning: 0.8 } as const;
+
+export function standingForPercent(percent: number | undefined): Standing | undefined {
+  if (percent === undefined) return undefined;
+  if (percent >= STANDING_THRESHOLDS.good) return "Good";
+  if (percent >= STANDING_THRESHOLDS.warning) return "Warning";
+  return "Hard Limit";
+}
