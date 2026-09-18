@@ -29,12 +29,33 @@ function nowIso(): string {
 export function AttendanceScreen({ roster, events, attendance, createAttendance, updateAttendance, catalog, applyAbsenceNotPass }: Props) {
   const catalogById = useMemo(() => new Map(catalog.map((o) => [o.id, o])), [catalog]);
   const sortedEvents = useMemo(() => [...events].sort((a, b) => b.eventDate.localeCompare(a.eventDate)), [events]);
-  const [selectedEventId, setSelectedEventId] = useState<string | undefined>(sortedEvents[0]?.id);
+
+  // Pick the Training Week first, then only that week's PMTs show in the PMT dropdown --
+  // otherwise every commander has to hunt through the whole semester's list.
+  const availableTWs = useMemo(
+    () => [...new Set(events.map((e) => e.trainingWeek).filter((tw): tw is number => tw !== undefined))].sort((a, b) => b - a),
+    [events]
+  );
+  const [twFilter, setTwFilter] = useState<number | undefined>(sortedEvents[0]?.trainingWeek);
+
+  const weekEvents = useMemo(
+    () => (twFilter === undefined ? sortedEvents : sortedEvents.filter((e) => e.trainingWeek === twFilter)),
+    [sortedEvents, twFilter]
+  );
+
+  const [selectedEventId, setSelectedEventId] = useState<string | undefined>(weekEvents[0]?.id);
   const [pending, setPending] = useState<Record<string, { status: AttendanceStatus; absenceReason: AbsenceReason | undefined }>>({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | undefined>();
   const [groupFilter, setGroupFilter] = useState<Group | "All">("All");
   const [flightFilter, setFlightFilter] = useState<Flight | "All">("All");
+
+  const handleTwChange = (v: string) => {
+    const tw = v === "All" ? undefined : Number(v);
+    setTwFilter(tw);
+    const nextEvents = tw === undefined ? sortedEvents : sortedEvents.filter((e) => e.trainingWeek === tw);
+    setSelectedEventId(nextEvents[0]?.id);
+  };
 
   const selectedEvent = sortedEvents.find((e) => e.id === selectedEventId);
   // Scoped to whichever Group/Flight is selected -- only that commander's own people, so a Flight
@@ -122,16 +143,32 @@ export function AttendanceScreen({ roster, events, attendance, createAttendance,
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-4">
+        <Select value={twFilter === undefined ? "All" : String(twFilter)} onValueChange={handleTwChange}>
+          <SelectTrigger className="w-32">
+            <SelectValue placeholder="Training Week" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="All">All weeks</SelectItem>
+            {availableTWs.map((tw) => (
+              <SelectItem key={tw} value={String(tw)}>
+                TW {tw}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Select value={selectedEventId ?? ""} onValueChange={setSelectedEventId}>
           <SelectTrigger className="w-96">
             <SelectValue placeholder="Select a PMT" />
           </SelectTrigger>
           <SelectContent>
-            {sortedEvents.map((e) => (
+            {weekEvents.map((e) => (
               <SelectItem key={e.id} value={e.id}>
                 {e.title} — {new Date(e.eventDate).toLocaleString()} ({e.eventType})
               </SelectItem>
             ))}
+            {weekEvents.length === 0 && (
+              <div className="px-2 py-1.5 text-sm text-muted-foreground">No PMTs in this Training Week.</div>
+            )}
           </SelectContent>
         </Select>
         <Select value={groupFilter} onValueChange={(v) => setGroupFilter(v as Group | "All")}>
