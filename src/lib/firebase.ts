@@ -3,10 +3,10 @@ import { connectFirestoreEmulator, getFirestore } from "firebase/firestore";
 
 // Same Firebase project/database as the TO's site (afrotc-training-tracker) -- this site reads
 // the shared `cadets` roster and `pmtEvents` calendar, and owns its own attendance/extraEvents/
-// preAccountability/extraEventAttendance collections. One database, not a separate one, so the
-// roster and PMT calendar can never drift between sites. Firebase web config is not a secret --
-// Firebase's security model relies on Firestore Security Rules (see firestore.rules), not on
-// hiding this object.
+// extraEventAttendance collections. One database, not a separate one, so the roster and PMT
+// calendar can never drift between sites. Firebase web config is not a secret -- Firebase's
+// security model relies on Firestore Security Rules (see firestore.rules), not on hiding this
+// object.
 const firebaseConfig = {
   apiKey: "AIzaSyB7nortxOkZX0wzLfWZJ4kQh5uePGQRK2k",
   authDomain: "afrotc-traning-tracker.firebaseapp.com",

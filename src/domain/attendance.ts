@@ -77,14 +77,6 @@ export function isPostAccountabilityWindowClosed(event: PmtEvent, now: Date = ne
   return now.getTime() > close.getTime();
 }
 
-/** Pre-Accountability window: opens 0400 the day before, closes 1700 the day before. */
-export function isPreAccountabilityWindowClosed(event: PmtEvent, now: Date = new Date()): boolean {
-  const dayBefore = new Date(event.eventDate);
-  dayBefore.setDate(dayBefore.getDate() - 1);
-  dayBefore.setHours(17, 0, 0, 0);
-  return now.getTime() > dayBefore.getTime();
-}
-
 /** True once a Post-Accountability entry lands after its window has already closed -- a visible flag, never a block. */
 export function isEntryOutsideWindow(event: PmtEvent, recordedAt: string): boolean {
   return new Date(recordedAt).getTime() > isPostAccountabilityCloseTime(event).getTime();

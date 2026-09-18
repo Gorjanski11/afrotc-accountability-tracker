@@ -3,8 +3,10 @@ import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { CalendarDays, Plus, Pencil, Trash2, TriangleAlert } from "lucide-react";
+import { CalendarDays, Plus, Pencil, Trash2, TriangleAlert, ChevronLeft, ChevronRight } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { findTrainingWeekConflicts } from "../domain/attendance";
+import { buildMonthGrid, isSameDay, isSameMonth, addMonths } from "../domain/calendarUtils";
 import { PmtEventFormDialog } from "../components/PmtEventFormDialog";
 import { ExtraEventFormDialog } from "../components/ExtraEventFormDialog";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -23,7 +25,28 @@ interface Props {
   deleteExtraEvent: (id: string) => Promise<void>;
 }
 
-type Tab = "pmt" | "extra";
+type Tab = "pmt" | "extra" | "calendar";
+
+const EVENT_TYPE_STYLES: Record<string, string> = {
+  PT: "bg-primary/10 text-primary",
+  LLAB: "bg-success/15 text-success",
+  FM: "bg-warning/20 text-warning-foreground",
+  "D&C": "bg-secondary text-secondary-foreground",
+};
+
+function EventChip({ label, type, onClick }: { label: string; type: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      className={cn("block w-full truncate rounded px-1.5 py-0.5 text-left text-xs", EVENT_TYPE_STYLES[type] ?? "bg-secondary")}
+    >
+      {label}
+    </button>
+  );
+}
 
 export function EventsScreen({
   events,
@@ -42,11 +65,35 @@ export function EventsScreen({
   const [extraFormOpen, setExtraFormOpen] = useState(false);
   const [editingExtra, setEditingExtra] = useState<ExtraEvent | undefined>();
   const [deletingExtra, setDeletingExtra] = useState<ExtraEvent | undefined>();
+  const [calendarAnchor, setCalendarAnchor] = useState(new Date());
 
   const sortedEvents = useMemo(() => [...events].sort((a, b) => a.eventDate.localeCompare(b.eventDate)), [events]);
   const sortedExtraEvents = useMemo(() => [...extraEvents].sort((a, b) => a.eventDate.localeCompare(b.eventDate)), [extraEvents]);
   const conflicts = useMemo(() => findTrainingWeekConflicts(events), [events]);
   const conflictEventIds = useMemo(() => new Set(conflicts.flatMap((c) => c.eventIds)), [conflicts]);
+
+  const pmtByDay = useMemo(() => {
+    const map = new Map<string, PmtEvent[]>();
+    for (const e of events) {
+      const key = new Date(e.eventDate).toDateString();
+      const list = map.get(key) ?? [];
+      list.push(e);
+      map.set(key, list);
+    }
+    for (const list of map.values()) list.sort((a, b) => a.eventDate.localeCompare(b.eventDate));
+    return map;
+  }, [events]);
+  const extraByDay = useMemo(() => {
+    const map = new Map<string, ExtraEvent[]>();
+    for (const e of extraEvents) {
+      const key = new Date(e.eventDate).toDateString();
+      const list = map.get(key) ?? [];
+      list.push(e);
+      map.set(key, list);
+    }
+    for (const list of map.values()) list.sort((a, b) => a.eventDate.localeCompare(b.eventDate));
+    return map;
+  }, [extraEvents]);
 
   return (
     <div>
@@ -59,6 +106,7 @@ export function EventsScreen({
           <TabsList>
             <TabsTrigger value="pmt">PMTs</TabsTrigger>
             <TabsTrigger value="extra">Extra Events</TabsTrigger>
+            <TabsTrigger value="calendar">Calendar</TabsTrigger>
           </TabsList>
         </Tabs>
       </div>
@@ -141,7 +189,7 @@ export function EventsScreen({
             </TableBody>
           </Table>
         </>
-      ) : (
+      ) : tab === "extra" ? (
         <>
           <div className="mb-4 flex justify-end">
             <Button
@@ -202,6 +250,77 @@ export function EventsScreen({
             </TableBody>
           </Table>
         </>
+      ) : (
+        <div>
+          <div className="mb-3 flex items-center gap-2">
+            <Button variant="outline" size="icon" onClick={() => setCalendarAnchor(addMonths(calendarAnchor, -1))}>
+              <ChevronLeft />
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setCalendarAnchor(new Date())}>
+              Today
+            </Button>
+            <Button variant="outline" size="icon" onClick={() => setCalendarAnchor(addMonths(calendarAnchor, 1))}>
+              <ChevronRight />
+            </Button>
+            <span className="text-lg font-medium">{calendarAnchor.toLocaleDateString(undefined, { month: "long", year: "numeric" })}</span>
+          </div>
+          <div className="overflow-x-auto">
+            <div className="grid min-w-[700px] grid-cols-7 gap-px overflow-hidden rounded-md border border-input bg-input">
+              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
+                <div key={d} className="bg-muted px-2 py-1 text-center text-xs font-medium text-muted-foreground">
+                  {d}
+                </div>
+              ))}
+              {buildMonthGrid(calendarAnchor)
+                .flat()
+                .map((day) => {
+                  const dayKey = day.toDateString();
+                  const dayPmt = pmtByDay.get(dayKey) ?? [];
+                  const dayExtra = extraByDay.get(dayKey) ?? [];
+                  return (
+                    <div
+                      key={day.toISOString()}
+                      className={cn(
+                        "min-h-24 cursor-pointer bg-background p-1",
+                        !isSameMonth(day, calendarAnchor) && "bg-muted/40 text-muted-foreground",
+                        isSameDay(day, new Date()) && "ring-1 ring-inset ring-primary"
+                      )}
+                      onClick={() => {
+                        setEditingPmt(undefined);
+                        setPmtFormOpen(true);
+                      }}
+                    >
+                      <div className="mb-1 text-xs">{day.getDate()}</div>
+                      <div className="flex flex-col gap-0.5">
+                        {dayPmt.map((e) => (
+                          <EventChip
+                            key={e.id}
+                            label={`${e.eventType} · ${e.title}`}
+                            type={e.eventType}
+                            onClick={() => {
+                              setEditingPmt(e);
+                              setPmtFormOpen(true);
+                            }}
+                          />
+                        ))}
+                        {dayExtra.map((e) => (
+                          <EventChip
+                            key={e.id}
+                            label={`Extra · ${e.title}`}
+                            type="extra"
+                            onClick={() => {
+                              setEditingExtra(e);
+                              setExtraFormOpen(true);
+                            }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+        </div>
       )}
 
       {pmtFormOpen && (

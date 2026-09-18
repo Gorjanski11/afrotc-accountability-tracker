@@ -25,6 +25,23 @@ export type Group = (typeof GROUPS)[number];
 export const CADET_STATUSES = ["Active", "Inactive", "Commissioned"] as const;
 export type CadetStatus = (typeof CADET_STATUSES)[number];
 
+// Mirrors the TO's site's dev-level/proficiency-code constants, needed here to compute the
+// "absence auto-fails every Training Objective tied to that PMT" side-effect (Section absence
+// rules): we have to know which proficiency code counts as "Not Pass" for a cadet's own level.
+export const DEV_LEVELS = ["BC", "BCL", "ICL", "SCL"] as const;
+export type DevLevel = (typeof DEV_LEVELS)[number];
+
+export const PROFICIENCY_CODES = ["Ka", "Kb", "P1", "P2", "P3"] as const;
+export type ProficiencyCode = (typeof PROFICIENCY_CODES)[number];
+
+export const PROFICIENCY_RANK: Record<ProficiencyCode, number> = {
+  Ka: 1,
+  Kb: 2,
+  P1: 3,
+  P2: 4,
+  P3: 5,
+};
+
 // PMT event types -- shared pmtEvents collection with the TO's site. "D&C" is this system's
 // "Other" catch-all bucket (Section 3.1): tracked for attendance but carries no percentage
 // threshold of its own.

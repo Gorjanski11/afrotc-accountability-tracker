@@ -78,21 +78,17 @@ export interface Attendance {
   notes: string;
 }
 
-/** Pre-Accountability (Section 4.2) -- one same-day-before headcount per unit per PMT, not linked row-for-row to Attendance. */
-export interface PreAccountability {
-  id: string;
-  pmtEventId: string;
-  /** A Flight (GMC) or Group (POC) label -- whichever unit this headcount covers. */
-  unit: string;
-  totalExpected: number;
-  presentExpected: number;
-  knownAbsences: { cadetId: string; cadetName: string; reason: string }[];
-  recordedAt: string;
-}
-
 /** Extra Event attendance (Section 4.3) -- a simple attendee list, never a percentage input. */
 export interface ExtraEventAttendance {
   id: string;
   extraEventId: string;
   attendeeCadetIds: string[];
+}
+
+/** Minimal read-only mirror of the TO's site's shared `trainingObjectives` catalog -- just enough to compute the absence -> automatic Not Pass side-effect. */
+export interface TrainingObjectiveRef {
+  id: string;
+  number: string;
+  graded: boolean;
+  proficiencyByLevel: Record<string, string>;
 }

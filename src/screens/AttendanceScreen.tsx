@@ -4,11 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Save, TriangleAlert, ClipboardCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { ATTENDANCE_STATUSES, ABSENCE_REASONS, type AttendanceStatus, type AbsenceReason } from "../domain/constants";
+import { ATTENDANCE_STATUSES, ABSENCE_REASONS, FLIGHTS, GROUPS, type AttendanceStatus, type AbsenceReason, type Flight, type Group } from "../domain/constants";
 import { isPostAccountabilityWindowClosed } from "../domain/attendance";
 import { compareByLastName } from "../domain/nameUtils";
 import type { AttendanceInput } from "../hooks/useAttendance";
-import type { Attendance, PmtEvent, RosterPerson } from "../domain/types";
+import type { Attendance, PmtEvent, RosterPerson, TrainingObjectiveRef } from "../domain/types";
 
 interface Props {
   roster: RosterPerson[];
@@ -16,6 +16,8 @@ interface Props {
   attendance: Attendance[];
   createAttendance: (input: AttendanceInput) => Promise<Attendance>;
   updateAttendance: (id: string, input: AttendanceInput) => Promise<void>;
+  catalog: TrainingObjectiveRef[];
+  applyAbsenceNotPass: (cadet: RosterPerson, pmtEvent: PmtEvent, catalogById: Map<string, TrainingObjectiveRef>) => Promise<void>;
 }
 
 const NONE = "__none__";
@@ -24,17 +26,27 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-export function AttendanceScreen({ roster, events, attendance, createAttendance, updateAttendance }: Props) {
+export function AttendanceScreen({ roster, events, attendance, createAttendance, updateAttendance, catalog, applyAbsenceNotPass }: Props) {
+  const catalogById = useMemo(() => new Map(catalog.map((o) => [o.id, o])), [catalog]);
   const sortedEvents = useMemo(() => [...events].sort((a, b) => b.eventDate.localeCompare(a.eventDate)), [events]);
   const [selectedEventId, setSelectedEventId] = useState<string | undefined>(sortedEvents[0]?.id);
   const [pending, setPending] = useState<Record<string, { status: AttendanceStatus; absenceReason: AbsenceReason | undefined }>>({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | undefined>();
+  const [groupFilter, setGroupFilter] = useState<Group | "All">("All");
+  const [flightFilter, setFlightFilter] = useState<Flight | "All">("All");
 
   const selectedEvent = sortedEvents.find((e) => e.id === selectedEventId);
+  // Scoped to whichever Group/Flight is selected -- only that commander's own people, so a Flight
+  // or Group commander can't accidentally edit accountability outside their own unit.
   const activeCadets = useMemo(
-    () => [...roster].filter((p) => p.status === "Active").sort((a, b) => compareByLastName(a.name, b.name)),
-    [roster]
+    () =>
+      [...roster]
+        .filter((p) => p.status === "Active")
+        .filter((p) => groupFilter === "All" || p.group === groupFilter)
+        .filter((p) => flightFilter === "All" || p.flight === flightFilter)
+        .sort((a, b) => compareByLastName(a.name, b.name)),
+    [roster, groupFilter, flightFilter]
   );
 
   const existingByCadet = useMemo(() => {
@@ -60,7 +72,7 @@ export function AttendanceScreen({ roster, events, attendance, createAttendance,
   const windowClosed = selectedEvent ? isPostAccountabilityWindowClosed(selectedEvent) : false;
 
   const handleSave = async () => {
-    if (!selectedEventId) return;
+    if (!selectedEventId || !selectedEvent) return;
     setSaving(true);
     setSaveError(undefined);
     try {
@@ -76,6 +88,14 @@ export function AttendanceScreen({ roster, events, attendance, createAttendance,
         };
         if (existing) await updateAttendance(existing.id, input);
         else await createAttendance(input);
+
+        // Absence auto-fail (explicit project rule): every Training Objective tied to this PMT
+        // becomes Not Pass for this cadet, overwriting whatever was there. Never runs for any
+        // other status, and nothing here ever auto-reverts it later.
+        if (value.status === "A") {
+          const cadet = roster.find((p) => p.id === cadetId);
+          if (cadet) await applyAbsenceNotPass(cadet, selectedEvent, catalogById);
+        }
       }
       setPending({});
     } catch (e) {
@@ -110,6 +130,32 @@ export function AttendanceScreen({ roster, events, attendance, createAttendance,
             {sortedEvents.map((e) => (
               <SelectItem key={e.id} value={e.id}>
                 {e.title} — {new Date(e.eventDate).toLocaleString()} ({e.eventType})
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={groupFilter} onValueChange={(v) => setGroupFilter(v as Group | "All")}>
+          <SelectTrigger className="w-36">
+            <SelectValue placeholder="Group" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="All">All groups</SelectItem>
+            {GROUPS.map((g) => (
+              <SelectItem key={g} value={g}>
+                {g}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={flightFilter} onValueChange={(v) => setFlightFilter(v as Flight | "All")}>
+          <SelectTrigger className="w-32">
+            <SelectValue placeholder="Flight" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="All">All flights</SelectItem>
+            {FLIGHTS.map((f) => (
+              <SelectItem key={f} value={f}>
+                {f} Flight
               </SelectItem>
             ))}
           </SelectContent>
@@ -185,7 +231,7 @@ export function AttendanceScreen({ roster, events, attendance, createAttendance,
             {activeCadets.length === 0 && (
               <TableRow>
                 <TableCell colSpan={3} className="text-center text-muted-foreground">
-                  No active cadets on the roster.
+                  No active cadets match this filter.
                 </TableCell>
               </TableRow>
             )}

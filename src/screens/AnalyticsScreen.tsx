@@ -11,6 +11,7 @@ import { PMT_EVENT_TYPES, bucketForEventType, type PmtEventType } from "../domai
 import { computeCadetAttendanceSummary, computeCombinedPercent } from "../domain/attendance";
 import {
   computeSessionTrend,
+  computeCadetSessionTrend,
   computeUnitComparison,
   computeStandingDistribution,
   unitOfAxis,
@@ -68,15 +69,26 @@ function pct(n: number | undefined): string {
   return n === undefined ? "—" : `${Math.round(n * 100)}%`;
 }
 
+const ALL_CADETS = "__all__";
+
 export function AnalyticsScreen({ roster, events, attendance }: Props) {
   const [trendBucket, setTrendBucket] = useState<TrendBucket>("ALL");
+  const [trendCadetId, setTrendCadetId] = useState<string>(ALL_CADETS);
   const [axis, setAxis] = useState<UnitAxis>("flight");
   const [tableType, setTableType] = useState<PmtEventType>("PT");
+  const [tableCadetId, setTableCadetId] = useState<string>(ALL_CADETS);
 
   const activeRoster = useMemo(() => roster.filter((p) => p.status === "Active"), [roster]);
+  const sortedActiveRoster = useMemo(() => [...activeRoster].sort((a, b) => compareByLastName(a.name, b.name)), [activeRoster]);
   const pmtEventsById = useMemo(() => new Map(events.map((e) => [e.id, e])), [events]);
 
-  const trend = useMemo(() => computeSessionTrend(trendBucket, activeRoster, attendance, events), [trendBucket, activeRoster, attendance, events]);
+  const trend = useMemo(
+    () =>
+      trendCadetId === ALL_CADETS
+        ? computeSessionTrend(trendBucket, activeRoster, attendance, events)
+        : computeCadetSessionTrend(trendBucket, trendCadetId, attendance, events),
+    [trendBucket, trendCadetId, activeRoster, attendance, events]
+  );
   const trendData = useMemo(
     () =>
       trend.map((t) => ({
@@ -107,9 +119,16 @@ export function AnalyticsScreen({ roster, events, attendance }: Props) {
     const percents = activeRoster.map((p) => computeCombinedPercent(p.id, attendance, pmtEventsById)).filter((n): n is number => n !== undefined);
     return percents.length === 0 ? undefined : percents.reduce((a, b) => a + b, 0) / percents.length;
   }, [activeRoster, attendance, pmtEventsById]);
+  // Unique cadets flagged (below Good in at least one bucket) -- deliberately mirrors the
+  // Dashboard's own flaggedCount exactly (same per-cadet OR check), not a sum of the distribution
+  // chart's per-bucket counts, which would double-count anyone below Good in both PT and LLAB/FM.
   const belowGoodCount = useMemo(
-    () => distribution.reduce((sum, row) => sum + (row.standing === "Good" ? 0 : row.ptCount + row.llabFmCount), 0),
-    [distribution]
+    () =>
+      activeRoster.filter((p) => {
+        const summary = computeCadetAttendanceSummary(p.id, attendance, pmtEventsById);
+        return summary.pt.standing !== "Good" || summary.llabFm.standing !== "Good";
+      }).length,
+    [activeRoster, attendance, pmtEventsById]
   );
 
   const tableBucket = bucketForEventType(tableType);
@@ -117,7 +136,10 @@ export function AnalyticsScreen({ roster, events, attendance }: Props) {
     () => events.filter((e) => e.eventType === tableType).sort((a, b) => a.eventDate.localeCompare(b.eventDate)),
     [events, tableType]
   );
-  const tableRoster = useMemo(() => [...activeRoster].sort((a, b) => compareByLastName(a.name, b.name)), [activeRoster]);
+  const tableRoster = useMemo(
+    () => sortedActiveRoster.filter((c) => tableCadetId === ALL_CADETS || c.id === tableCadetId),
+    [sortedActiveRoster, tableCadetId]
+  );
   const cellByKey = useMemo(() => {
     const map = new Map<string, Attendance>();
     for (const record of attendance) map.set(`${record.cadetId}__${record.pmtEventId}`, record);
@@ -152,18 +174,33 @@ export function AnalyticsScreen({ roster, events, attendance }: Props) {
                 <TrendingUp className="h-4 w-4 text-primary" />
                 Attendance trend
               </CardTitle>
-              <Select value={trendBucket} onValueChange={(v) => setTrendBucket(v as TrendBucket)}>
-                <SelectTrigger className="w-40">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {TREND_OPTIONS.map((o) => (
-                    <SelectItem key={o.value} value={o.value}>
-                      {o.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex items-center gap-2">
+                <Select value={trendCadetId} onValueChange={setTrendCadetId}>
+                  <SelectTrigger className="w-44">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL_CADETS}>All cadets (cohort)</SelectItem>
+                    {sortedActiveRoster.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={trendBucket} onValueChange={(v) => setTrendBucket(v as TrendBucket)}>
+                  <SelectTrigger className="w-40">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TREND_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </CardHeader>
             <CardContent>
               {trendData.length === 0 ? (
@@ -183,7 +220,11 @@ export function AnalyticsScreen({ roster, events, attendance }: Props) {
                     <Tooltip
                       contentStyle={{ background: "var(--popover)", border: "1px solid var(--border)", borderRadius: 6, fontSize: 12 }}
                       formatter={(value, _name, item) => [
-                        value === null ? "no data" : `${value}% (${item.payload.countedCadets} cadets)`,
+                        value === null
+                          ? "no data"
+                          : trendCadetId === ALL_CADETS
+                            ? `${value}% (${item.payload.countedCadets} cadets)`
+                            : `${value}% cumulative`,
                         item.payload.label,
                       ]}
                     />
@@ -270,18 +311,33 @@ export function AnalyticsScreen({ roster, events, attendance }: Props) {
               <Table2 className="h-4 w-4 text-primary" />
               Master attendance table
             </CardTitle>
-            <Select value={tableType} onValueChange={(v) => setTableType(v as PmtEventType)}>
-              <SelectTrigger className="w-32">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {PMT_EVENT_TYPES.map((t) => (
-                  <SelectItem key={t} value={t}>
-                    {t}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="flex items-center gap-2">
+              <Select value={tableCadetId} onValueChange={setTableCadetId}>
+                <SelectTrigger className="w-44">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_CADETS}>All cadets</SelectItem>
+                  {sortedActiveRoster.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={tableType} onValueChange={(v) => setTableType(v as PmtEventType)}>
+                <SelectTrigger className="w-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PMT_EVENT_TYPES.map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {t}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </CardHeader>
           <CardContent>
             {tableEvents.length === 0 ? (

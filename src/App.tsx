@@ -9,7 +9,8 @@ import { useRoster } from "./hooks/useRoster";
 import { usePmtEvents } from "./hooks/usePmtEvents";
 import { useExtraEvents } from "./hooks/useExtraEvents";
 import { useAttendance } from "./hooks/useAttendance";
-import { usePreAccountability } from "./hooks/usePreAccountability";
+import { useTrainingObjectivesCatalog } from "./hooks/useTrainingObjectivesCatalog";
+import { useAutoFailCompletions } from "./hooks/useAutoFailCompletions";
 import { useTheme } from "./hooks/useTheme";
 import { DashboardScreen } from "./screens/DashboardScreen";
 import { RosterScreen } from "./screens/RosterScreen";
@@ -29,20 +30,22 @@ function AnimatedPanel({ children }: { children: React.ReactNode }) {
 
 // No login of any kind -- open to anyone with the link, same as the TO's site. Same Firebase
 // project/database: reads/writes the shared `cadets` roster and `pmtEvents` calendar, owns its
-// own attendance/extraEvents/preAccountability/extraEventAttendance collections.
+// own attendance/extraEvents/extraEventAttendance collections.
 function App() {
   const rosterState = useRoster();
   const eventsState = usePmtEvents();
   const extraEventsState = useExtraEvents();
   const attendanceState = useAttendance();
-  const preAccountabilityState = usePreAccountability();
+  const catalogState = useTrainingObjectivesCatalog();
+  const { applyAbsenceNotPass } = useAutoFailCompletions();
   const { theme, toggleTheme } = useTheme();
 
   const [screen, setScreen] = useState<Screen>("dashboard");
 
   const dataLoading =
-    rosterState.loading || eventsState.loading || extraEventsState.loading || attendanceState.loading || preAccountabilityState.loading;
-  const loadError = rosterState.error || eventsState.error || extraEventsState.error || attendanceState.error || preAccountabilityState.error;
+    rosterState.loading || eventsState.loading || extraEventsState.loading || attendanceState.loading || catalogState.loading;
+  const loadError =
+    rosterState.error || eventsState.error || extraEventsState.error || attendanceState.error || catalogState.error;
 
   return (
     <div className="flex h-screen flex-col">
@@ -122,7 +125,6 @@ function App() {
                     events={eventsState.events}
                     extraEvents={extraEventsState.extraEvents}
                     attendance={attendanceState.attendance}
-                    preAccountability={preAccountabilityState.records}
                   />
                 </AnimatedPanel>
               </TabsContent>
@@ -153,6 +155,8 @@ function App() {
                     attendance={attendanceState.attendance}
                     createAttendance={attendanceState.createAttendance}
                     updateAttendance={attendanceState.updateAttendance}
+                    catalog={catalogState.catalog}
+                    applyAbsenceNotPass={applyAbsenceNotPass}
                   />
                 </AnimatedPanel>
               </TabsContent>

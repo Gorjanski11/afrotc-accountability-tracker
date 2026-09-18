@@ -57,6 +57,42 @@ export function computeSessionTrend(
   });
 }
 
+/**
+ * One point per session for a single cadet -- their *cumulative* running percent through and
+ * including that session (not just that session's own P/L/A/AE/PE weight), so the line actually
+ * reads as a trend in their standing rather than a noisy 0/50/100 step function.
+ */
+export function computeCadetSessionTrend(bucket: TrendBucket, cadetId: string, attendance: Attendance[], events: PmtEvent[]): SessionTrendPoint[] {
+  const relevantEvents = events
+    .filter((e) => bucket === "ALL" || bucketForEventType(e.eventType) === bucket)
+    .sort((a, b) => a.eventDate.localeCompare(b.eventDate));
+
+  const byEvent = new Map<string, Attendance>();
+  for (const record of attendance) {
+    if (record.cadetId === cadetId) byEvent.set(record.pmtEventId, record);
+  }
+
+  let weightedSum = 0;
+  let countedEvents = 0;
+  return relevantEvents.map((e) => {
+    const record = byEvent.get(e.id);
+    if (record) {
+      const weight = ATTENDANCE_WEIGHT[record.status];
+      if (weight !== undefined) {
+        weightedSum += weight;
+        countedEvents += 1;
+      }
+    }
+    return {
+      eventId: e.id,
+      date: e.eventDate,
+      label: e.title,
+      percent: countedEvents === 0 ? undefined : weightedSum / countedEvents,
+      countedCadets: countedEvents > 0 ? 1 : 0,
+    };
+  });
+}
+
 export interface UnitComparisonRow {
   unit: string;
   ptPercent: number | undefined;

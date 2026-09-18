@@ -1,21 +1,91 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { motion } from "motion/react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { LayoutDashboard, Users, TriangleAlert, ClipboardCheck, CalendarX, UserX } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { LayoutDashboard, Users, TriangleAlert, ClipboardCheck, CalendarX, UserX, CalendarDays } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { computeCadetAttendanceSummary, findTrainingWeekConflicts, findStaleRepositions, isPostAccountabilityWindowClosed, isPreAccountabilityWindowClosed } from "../domain/attendance";
-import { deriveClass } from "../domain/constants";
+import { computeCadetAttendanceSummary, findTrainingWeekConflicts, findStaleRepositions, isPostAccountabilityWindowClosed } from "../domain/attendance";
+import { deriveClass, FLIGHTS, GROUPS, type Flight, type Group, type Standing } from "../domain/constants";
 import { compareByLastName } from "../domain/nameUtils";
-import type { Attendance, ExtraEvent, PmtEvent, PreAccountability, RosterPerson } from "../domain/types";
+import type { Attendance, ExtraEvent, PmtEvent, RosterPerson } from "../domain/types";
 
 interface Props {
   roster: RosterPerson[];
   events: PmtEvent[];
   extraEvents: ExtraEvent[];
   attendance: Attendance[];
-  preAccountability: PreAccountability[];
+}
+
+const STANDING_OPTIONS: Standing[] = ["Good", "Warning", "Hard Limit"];
+
+function isoWeekStart(d: Date): Date {
+  const day = (d.getDay() + 6) % 7; // Mon=0..Sun=6
+  const monday = new Date(d);
+  monday.setDate(d.getDate() - day);
+  monday.setHours(0, 0, 0, 0);
+  return monday;
+}
+
+function WeekView({ events }: { events: PmtEvent[] }) {
+  const days = useMemo(() => {
+    const start = isoWeekStart(new Date());
+    return Array.from({ length: 7 }, (_, i) => {
+      const day = new Date(start);
+      day.setDate(start.getDate() + i);
+      return day;
+    });
+  }, []);
+
+  const eventsByDay = useMemo(() => {
+    const map = new Map<string, PmtEvent[]>();
+    for (const e of events) {
+      const key = e.eventDate.slice(0, 10);
+      const list = map.get(key) ?? [];
+      list.push(e);
+      map.set(key, list);
+    }
+    return map;
+  }, [events]);
+
+  const todayKey = new Date().toISOString().slice(0, 10);
+
+  return (
+    <div className="overflow-x-auto">
+      <div className="flex min-w-max gap-3 pb-1">
+        {days.map((day) => {
+          const key = day.toISOString().slice(0, 10);
+          const dayEvents = (eventsByDay.get(key) ?? []).sort((a, b) => a.eventDate.localeCompare(b.eventDate));
+          const isToday = key === todayKey;
+          return (
+            <div
+              key={key}
+              className={cn("w-40 shrink-0 rounded-md border border-input p-2", isToday && "border-primary bg-primary/5")}
+            >
+              <div className={cn("mb-1.5 text-xs font-medium", isToday ? "text-primary" : "text-muted-foreground")}>
+                {day.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
+              </div>
+              {dayEvents.length === 0 ? (
+                <p className="text-[11px] text-muted-foreground">—</p>
+              ) : (
+                <div className="space-y-1">
+                  {dayEvents.map((e) => (
+                    <div key={e.id} className="rounded bg-muted px-1.5 py-1 text-[11px]">
+                      <div className="font-medium">{e.eventType}</div>
+                      <div className="truncate text-muted-foreground" title={e.title}>
+                        {e.title}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 function HeroStat({ icon, label, value, tone, index }: { icon: React.ReactNode; label: string; value: string; tone?: "critical"; index: number }) {
@@ -41,7 +111,11 @@ function HeroStat({ icon, label, value, tone, index }: { icon: React.ReactNode; 
   );
 }
 
-export function DashboardScreen({ roster, events, extraEvents, attendance, preAccountability }: Props) {
+export function DashboardScreen({ roster, events, extraEvents, attendance }: Props) {
+  const [flightFilter, setFlightFilter] = useState<Flight | "All">("All");
+  const [groupFilter, setGroupFilter] = useState<Group | "All">("All");
+  const [standingFilter, setStandingFilter] = useState<Standing | "All">("All");
+
   const activeRoster = useMemo(() => roster.filter((p) => p.status === "Active"), [roster]);
   const pmtEventsById = useMemo(() => new Map(events.map((e) => [e.id, e])), [events]);
 
@@ -53,17 +127,26 @@ export function DashboardScreen({ roster, events, extraEvents, attendance, preAc
     [activeRoster, attendance, pmtEventsById]
   );
 
+  // Unique cadets flagged (below Good in at least one bucket) -- kept as the single source of
+  // truth for this count. The Analytics tab's "below-Good standing flags" stat mirrors this same
+  // logic (unique cadets, not bucket-instances) so the two numbers never diverge again.
   const flaggedCount = standings.filter((s) => s.summary.pt.standing !== "Good" || s.summary.llabFm.standing !== "Good").length;
+
+  const filteredStandings = useMemo(
+    () =>
+      standings.filter(({ person, summary }) => {
+        if (flightFilter !== "All" && person.flight !== flightFilter) return false;
+        if (groupFilter !== "All" && person.group !== groupFilter) return false;
+        if (standingFilter !== "All" && summary.pt.standing !== standingFilter && summary.llabFm.standing !== standingFilter) return false;
+        return true;
+      }),
+    [standings, flightFilter, groupFilter, standingFilter]
+  );
 
   const missingPost = useMemo(() => {
     const withRecords = new Set(attendance.map((a) => a.pmtEventId));
     return events.filter((e) => isPostAccountabilityWindowClosed(e) && !withRecords.has(e.id));
   }, [events, attendance]);
-
-  const missingPre = useMemo(() => {
-    const withRecords = new Set(preAccountability.map((r) => r.pmtEventId));
-    return events.filter((e) => isPreAccountabilityWindowClosed(e) && !withRecords.has(e.id));
-  }, [events, preAccountability]);
 
   const twConflicts = useMemo(() => findTrainingWeekConflicts(events), [events]);
   const staleRepositions = useMemo(() => findStaleRepositions(extraEvents, pmtEventsById), [extraEvents, pmtEventsById]);
@@ -109,6 +192,18 @@ export function DashboardScreen({ roster, events, extraEvents, attendance, preAc
         />
       </div>
 
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>
+            <CalendarDays className="h-4 w-4 text-primary" />
+            This week
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <WeekView events={events} />
+        </CardContent>
+      </Card>
+
       <div className="mb-6 grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
@@ -123,31 +218,6 @@ export function DashboardScreen({ roster, events, extraEvents, attendance, preAc
             ) : (
               <div className="space-y-1.5">
                 {missingPost.map((e) => (
-                  <div key={e.id} className="flex items-center justify-between text-sm">
-                    <span>
-                      {e.title} <span className="text-muted-foreground">({e.eventType})</span>
-                    </span>
-                    <span className="text-muted-foreground">{new Date(e.eventDate).toLocaleDateString()}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              <CalendarX className="h-4 w-4 text-destructive" />
-              Missing Pre-Accountability
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {missingPre.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Nothing missing right now.</p>
-            ) : (
-              <div className="space-y-1.5">
-                {missingPre.map((e) => (
                   <div key={e.id} className="flex items-center justify-between text-sm">
                     <span>
                       {e.title} <span className="text-muted-foreground">({e.eventType})</span>
@@ -207,11 +277,52 @@ export function DashboardScreen({ roster, events, extraEvents, attendance, preAc
       </div>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="flex-row items-center justify-between space-y-0">
           <CardTitle>
             <Users className="h-4 w-4 text-primary" />
             Standing by cadet
           </CardTitle>
+          <div className="flex items-center gap-2">
+            <Select value={flightFilter} onValueChange={(v) => setFlightFilter(v as Flight | "All")}>
+              <SelectTrigger className="w-32">
+                <SelectValue placeholder="Flight" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="All">All flights</SelectItem>
+                {FLIGHTS.map((f) => (
+                  <SelectItem key={f} value={f}>
+                    {f} Flight
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={groupFilter} onValueChange={(v) => setGroupFilter(v as Group | "All")}>
+              <SelectTrigger className="w-32">
+                <SelectValue placeholder="Group" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="All">All groups</SelectItem>
+                {GROUPS.map((g) => (
+                  <SelectItem key={g} value={g}>
+                    {g}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={standingFilter} onValueChange={(v) => setStandingFilter(v as Standing | "All")}>
+              <SelectTrigger className="w-36">
+                <SelectValue placeholder="Standing" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="All">All standings</SelectItem>
+                {STANDING_OPTIONS.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {s}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </CardHeader>
         <CardContent className="pt-2">
           <Table aria-label="Standing by cadet">
@@ -226,7 +337,7 @@ export function DashboardScreen({ roster, events, extraEvents, attendance, preAc
               </TableRow>
             </TableHeader>
             <TableBody>
-              {standings.map(({ person, summary }) => (
+              {filteredStandings.map(({ person, summary }) => (
                 <TableRow key={person.id}>
                   <TableCell>{person.name}</TableCell>
                   <TableCell>{deriveClass(person.asClass, person.isCadre)}</TableCell>
@@ -240,10 +351,10 @@ export function DashboardScreen({ roster, events, extraEvents, attendance, preAc
                   </TableCell>
                 </TableRow>
               ))}
-              {standings.length === 0 && (
+              {filteredStandings.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center text-muted-foreground">
-                    No active cadets on the roster.
+                    No active cadets match this filter.
                   </TableCell>
                 </TableRow>
               )}
