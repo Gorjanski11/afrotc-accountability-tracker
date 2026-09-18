@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Moon, Sun, ClipboardCheck, LayoutDashboard, Users, CalendarDays } from "lucide-react";
+import { Moon, Sun, ClipboardCheck, LayoutDashboard, Users, CalendarDays, BarChart2 } from "lucide-react";
 import { useRoster } from "./hooks/useRoster";
 import { usePmtEvents } from "./hooks/usePmtEvents";
 import { useExtraEvents } from "./hooks/useExtraEvents";
@@ -15,8 +15,9 @@ import { DashboardScreen } from "./screens/DashboardScreen";
 import { RosterScreen } from "./screens/RosterScreen";
 import { EventsScreen } from "./screens/EventsScreen";
 import { AttendanceScreen } from "./screens/AttendanceScreen";
+import { AnalyticsScreen } from "./screens/AnalyticsScreen";
 
-type Screen = "dashboard" | "roster" | "events" | "attendance";
+type Screen = "dashboard" | "roster" | "events" | "attendance" | "analytics";
 
 function AnimatedPanel({ children }: { children: React.ReactNode }) {
   return (
@@ -90,6 +91,10 @@ function App() {
               <ClipboardCheck className="h-3.5 w-3.5" />
               Post-Accountability
             </TabsTrigger>
+            <TabsTrigger value="analytics">
+              <BarChart2 className="h-3.5 w-3.5" />
+              Analytics
+            </TabsTrigger>
           </TabsList>
         </nav>
 
@@ -149,6 +154,11 @@ function App() {
                     createAttendance={attendanceState.createAttendance}
                     updateAttendance={attendanceState.updateAttendance}
                   />
+                </AnimatedPanel>
+              </TabsContent>
+              <TabsContent value="analytics">
+                <AnimatedPanel>
+                  <AnalyticsScreen roster={rosterState.roster} events={eventsState.events} attendance={attendanceState.attendance} />
                 </AnimatedPanel>
               </TabsContent>
             </>
