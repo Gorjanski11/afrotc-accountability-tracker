@@ -7,7 +7,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { BarChart2, TrendingUp, Scale, PieChart, Table2, Users, Gauge, TriangleAlert, CalendarDays } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { PMT_EVENT_TYPES, FLIGHTS, bucketForEventType, type PmtEventType, type Flight } from "../domain/constants";
+import { PMT_EVENT_TYPES, FLIGHTS, GROUPS, deriveClass, bucketForEventType, type PmtEventType, type Flight, type Group } from "../domain/constants";
 import { computeCadetAttendanceSummary, computeCombinedPercent } from "../domain/attendance";
 import {
   computeSessionTrend,
@@ -53,41 +53,65 @@ function StatTile({ icon, label, value, tone, index }: { icon: React.ReactNode; 
   );
 }
 
-const TREND_OPTIONS: { value: TrendBucket; label: string }[] = [
-  { value: "PT", label: "PT" },
-  { value: "LLAB_FM", label: "LLAB + FM" },
-  { value: "OTHER", label: "D&C / Other" },
-  { value: "ALL", label: "All combined" },
-];
-
 const AXIS_OPTIONS: { value: UnitAxis; label: string }[] = [
   { value: "flight", label: "Flight" },
   { value: "group", label: "Group" },
   { value: "class", label: "Class" },
 ];
 
+const CLASS_OPTIONS = ["POC", "GMC"] as const;
+type ClassFilter = (typeof CLASS_OPTIONS)[number];
+
 function pct(n: number | undefined): string {
   return n === undefined ? "—" : `${Math.round(n * 100)}%`;
 }
 
 export function AnalyticsScreen({ roster, events, attendance }: Props) {
-  const [trendBucket, setTrendBucket] = useState<TrendBucket>("ALL");
-  const [trendCadetId, setTrendCadetId] = useState<string>(ALL_CADETS);
+  // Master filters -- these apply to every chart/table below. Where a filter makes a particular
+  // view meaningless (e.g. a PT-vs-LLAB/FM comparison while a single PMT type is selected), that
+  // view is hidden with an explanatory note rather than rendered broken or misleading.
+  const [masterCadetId, setMasterCadetId] = useState<string>(ALL_CADETS);
+  const [masterFlight, setMasterFlight] = useState<Flight | "All">("All");
+  const [masterGroup, setMasterGroup] = useState<Group | "All">("All");
+  const [masterClass, setMasterClass] = useState<ClassFilter | "All">("All");
+  const [masterPmtType, setMasterPmtType] = useState<PmtEventType | "All">("All");
   const [axis, setAxis] = useState<UnitAxis>("flight");
-  const [tableType, setTableType] = useState<PmtEventType>("PT");
-  const [tableCadetId, setTableCadetId] = useState<string>(ALL_CADETS);
-  const [tableFlight, setTableFlight] = useState<Flight | "All">("All");
 
   const activeRoster = useMemo(() => roster.filter((p) => p.status === "Active"), [roster]);
   const sortedActiveRoster = useMemo(() => [...activeRoster].sort((a, b) => compareByLastName(a.name, b.name)), [activeRoster]);
   const pmtEventsById = useMemo(() => new Map(events.map((e) => [e.id, e])), [events]);
 
+  const hasCadetFilter = masterCadetId !== ALL_CADETS;
+
+  // Roster narrowed by Flight/Group/Class -- feeds every roster-based chart. The individual-cadet
+  // filter is handled separately per-chart since it changes *which* computation runs, not just
+  // which rows are included.
+  const filteredRoster = useMemo(
+    () =>
+      sortedActiveRoster
+        .filter((p) => masterFlight === "All" || p.flight === masterFlight)
+        .filter((p) => masterGroup === "All" || p.group === masterGroup)
+        .filter((p) => masterClass === "All" || deriveClass(p.asClass, p.isCadre) === masterClass),
+    [sortedActiveRoster, masterFlight, masterGroup, masterClass]
+  );
+
+  const statsRoster = useMemo(
+    () => filteredRoster.filter((p) => !hasCadetFilter || p.id === masterCadetId),
+    [filteredRoster, hasCadetFilter, masterCadetId]
+  );
+  const statsEvents = useMemo(
+    () => (masterPmtType === "All" ? events : events.filter((e) => e.eventType === masterPmtType)),
+    [events, masterPmtType]
+  );
+
+  const trendBucket: TrendBucket = masterPmtType === "All" ? "ALL" : bucketForEventType(masterPmtType);
+
   const trend = useMemo(
     () =>
-      trendCadetId === ALL_CADETS
-        ? computeSessionTrend(trendBucket, activeRoster, attendance, events)
-        : computeCadetSessionTrend(trendBucket, trendCadetId, attendance, events),
-    [trendBucket, trendCadetId, activeRoster, attendance, events]
+      hasCadetFilter
+        ? computeCadetSessionTrend(trendBucket, masterCadetId, attendance, events)
+        : computeSessionTrend(trendBucket, filteredRoster, attendance, events),
+    [trendBucket, hasCadetFilter, masterCadetId, filteredRoster, attendance, events]
   );
   const trendData = useMemo(() => {
     const mapped = trend.map((t) => ({
@@ -95,15 +119,23 @@ export function AnalyticsScreen({ roster, events, attendance }: Props) {
       dateLabel: new Date(t.date).toLocaleDateString(undefined, { month: "short", day: "numeric" }),
       percentPct: t.percent === undefined ? null : Math.round(t.percent * 100),
     }));
-    // Cut the line at the last PMT that actually has attendance entered -- don't stretch the
-    // chart out through future/unscheduled sessions that have no data yet.
-    const lastEnteredIndex = mapped.reduce((last, point, i) => (point.percentPct !== null ? i : last), -1);
-    return mapped.slice(0, lastEnteredIndex + 1);
+    // Cut the line at the last PMT that has actually passed as of today -- don't stretch the
+    // chart out through future/unscheduled sessions that haven't happened yet.
+    const now = Date.now();
+    const cutoffIndex = mapped.reduce((last, point, i) => (new Date(point.date).getTime() <= now ? i : last), -1);
+    return mapped.slice(0, cutoffIndex + 1);
   }, [trend]);
 
+  // The PT-vs-LLAB/FM comparison and standing-distribution charts both inherently split their data
+  // into a PT series and an LLAB/FM series -- neither means anything once the PMT-type filter has
+  // already narrowed the data to one type, or once the cadet filter has narrowed it to one person
+  // (nothing left to compare "by unit").
+  const showComparison = !hasCadetFilter && masterPmtType === "All";
+  const showDistribution = !hasCadetFilter && masterPmtType === "All";
+
   const comparison = useMemo(
-    () => computeUnitComparison(activeRoster, attendance, pmtEventsById, (p) => unitOfAxis(axis, p)),
-    [activeRoster, attendance, pmtEventsById, axis]
+    () => computeUnitComparison(filteredRoster, attendance, pmtEventsById, (p) => unitOfAxis(axis, p)),
+    [filteredRoster, attendance, pmtEventsById, axis]
   );
   const comparisonData = useMemo(
     () =>
@@ -115,36 +147,34 @@ export function AnalyticsScreen({ roster, events, attendance }: Props) {
     [comparison]
   );
 
-  const distribution = useMemo(() => computeStandingDistribution(activeRoster, attendance, pmtEventsById), [activeRoster, attendance, pmtEventsById]);
+  const distribution = useMemo(() => computeStandingDistribution(filteredRoster, attendance, pmtEventsById), [filteredRoster, attendance, pmtEventsById]);
 
   const cohortCombinedPercent = useMemo(() => {
-    const percents = activeRoster.map((p) => computeCombinedPercent(p.id, attendance, pmtEventsById)).filter((n): n is number => n !== undefined);
+    const percents = statsRoster.map((p) => computeCombinedPercent(p.id, attendance, pmtEventsById)).filter((n): n is number => n !== undefined);
     return percents.length === 0 ? undefined : percents.reduce((a, b) => a + b, 0) / percents.length;
-  }, [activeRoster, attendance, pmtEventsById]);
+  }, [statsRoster, attendance, pmtEventsById]);
   // Unique cadets flagged (below Good in at least one bucket) -- deliberately mirrors the
   // Dashboard's own flaggedCount exactly (same per-cadet OR check), not a sum of the distribution
   // chart's per-bucket counts, which would double-count anyone below Good in both PT and LLAB/FM.
   const belowGoodCount = useMemo(
     () =>
-      activeRoster.filter((p) => {
+      statsRoster.filter((p) => {
         const summary = computeCadetAttendanceSummary(p.id, attendance, pmtEventsById);
         return summary.pt.standing !== "Good" || summary.llabFm.standing !== "Good";
       }).length,
-    [activeRoster, attendance, pmtEventsById]
+    [statsRoster, attendance, pmtEventsById]
   );
 
-  const tableBucket = bucketForEventType(tableType);
+  // The master table renders one column per PMT occurrence of a single event type -- there's no
+  // sensible way to lay out "every type at once" as columns, so it only renders once a specific
+  // type is chosen via the master filter.
+  const showTable = masterPmtType !== "All";
+  const tableBucket = showTable ? bucketForEventType(masterPmtType) : undefined;
   const tableEvents = useMemo(
-    () => events.filter((e) => e.eventType === tableType).sort((a, b) => a.eventDate.localeCompare(b.eventDate)),
-    [events, tableType]
+    () => (showTable ? events.filter((e) => e.eventType === masterPmtType).sort((a, b) => a.eventDate.localeCompare(b.eventDate)) : []),
+    [events, masterPmtType, showTable]
   );
-  const tableRoster = useMemo(
-    () =>
-      sortedActiveRoster
-        .filter((c) => tableCadetId === ALL_CADETS || c.id === tableCadetId)
-        .filter((c) => tableFlight === "All" || c.flight === tableFlight),
-    [sortedActiveRoster, tableCadetId, tableFlight]
-  );
+  const tableRoster = useMemo(() => filteredRoster.filter((c) => !hasCadetFilter || c.id === masterCadetId), [filteredRoster, hasCadetFilter, masterCadetId]);
   const cellByKey = useMemo(() => {
     const map = new Map<string, Attendance>();
     for (const record of attendance) map.set(`${record.cadetId}__${record.pmtEventId}`, record);
@@ -158,8 +188,65 @@ export function AnalyticsScreen({ roster, events, attendance }: Props) {
         Analytics
       </h2>
 
+      <div className="mb-6 flex flex-wrap items-center gap-3 rounded-md border border-input bg-card p-3">
+        <span className="text-xs font-medium text-muted-foreground">Filters (apply to everything below):</span>
+        <CadetFilterCombobox roster={sortedActiveRoster} value={masterCadetId} onChange={setMasterCadetId} allLabel="All cadets" />
+        <Select value={masterFlight} onValueChange={(v) => setMasterFlight(v as Flight | "All")}>
+          <SelectTrigger className="w-28">
+            <SelectValue placeholder="Flight" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="All">All flights</SelectItem>
+            {FLIGHTS.map((f) => (
+              <SelectItem key={f} value={f}>
+                {f} Flight
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={masterGroup} onValueChange={(v) => setMasterGroup(v as Group | "All")}>
+          <SelectTrigger className="w-28">
+            <SelectValue placeholder="Group" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="All">All groups</SelectItem>
+            {GROUPS.map((g) => (
+              <SelectItem key={g} value={g}>
+                {g}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={masterClass} onValueChange={(v) => setMasterClass(v as ClassFilter | "All")}>
+          <SelectTrigger className="w-28">
+            <SelectValue placeholder="Class" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="All">POC + GMC</SelectItem>
+            {CLASS_OPTIONS.map((c) => (
+              <SelectItem key={c} value={c}>
+                {c}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={masterPmtType} onValueChange={(v) => setMasterPmtType(v as PmtEventType | "All")}>
+          <SelectTrigger className="w-32">
+            <SelectValue placeholder="PMT type" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="All">All PMT types</SelectItem>
+            {PMT_EVENT_TYPES.map((t) => (
+              <SelectItem key={t} value={t}>
+                {t}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
       <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <StatTile icon={<Users className="h-4.5 w-4.5" />} label="Active roster" value={String(activeRoster.length)} index={0} />
+        <StatTile icon={<Users className="h-4.5 w-4.5" />} label="Active roster" value={String(statsRoster.length)} index={0} />
         <StatTile icon={<Gauge className="h-4.5 w-4.5" />} label="Cohort combined %" value={pct(cohortCombinedPercent)} index={1} />
         <StatTile
           icon={<TriangleAlert className="h-4.5 w-4.5" />}
@@ -168,36 +255,21 @@ export function AnalyticsScreen({ roster, events, attendance }: Props) {
           tone={belowGoodCount > 0 ? "critical" : undefined}
           index={2}
         />
-        <StatTile icon={<CalendarDays className="h-4.5 w-4.5" />} label="PMT sessions tracked" value={String(events.length)} index={3} />
+        <StatTile icon={<CalendarDays className="h-4.5 w-4.5" />} label="PMT sessions tracked" value={String(statsEvents.length)} index={3} />
       </div>
 
       <div className="mb-6 grid gap-4 lg:grid-cols-2">
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
           <Card>
-            <CardHeader className="flex-row items-center justify-between space-y-0">
+            <CardHeader>
               <CardTitle>
                 <TrendingUp className="h-4 w-4 text-primary" />
                 Attendance trend
               </CardTitle>
-              <div className="flex items-center gap-2">
-                <CadetFilterCombobox roster={sortedActiveRoster} value={trendCadetId} onChange={setTrendCadetId} allLabel="All cadets (cohort)" />
-                <Select value={trendBucket} onValueChange={(v) => setTrendBucket(v as TrendBucket)}>
-                  <SelectTrigger className="w-40">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TREND_OPTIONS.map((o) => (
-                      <SelectItem key={o.value} value={o.value}>
-                        {o.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
             </CardHeader>
             <CardContent>
               {trendData.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No sessions in this bucket yet.</p>
+                <p className="text-sm text-muted-foreground">No sessions in this filter yet.</p>
               ) : (
                 <ResponsiveContainer width="100%" height={240}>
                   <LineChart data={trendData} margin={chartMargin}>
@@ -215,9 +287,9 @@ export function AnalyticsScreen({ roster, events, attendance }: Props) {
                       formatter={(value, _name, item) => [
                         value === null
                           ? "no data"
-                          : trendCadetId === ALL_CADETS
-                            ? `${value}% (${item.payload.countedCadets} cadets)`
-                            : `${value}% cumulative`,
+                          : hasCadetFilter
+                            ? `${value}% cumulative`
+                            : `${value}% (${item.payload.countedCadets} cadets)`,
                         item.payload.label,
                       ]}
                     />
@@ -236,21 +308,27 @@ export function AnalyticsScreen({ roster, events, attendance }: Props) {
                 <Scale className="h-4 w-4 text-primary" />
                 PT vs LLAB/FM by unit
               </CardTitle>
-              <Select value={axis} onValueChange={(v) => setAxis(v as UnitAxis)}>
-                <SelectTrigger className="w-32">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {AXIS_OPTIONS.map((o) => (
-                    <SelectItem key={o.value} value={o.value}>
-                      {o.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {showComparison && (
+                <Select value={axis} onValueChange={(v) => setAxis(v as UnitAxis)}>
+                  <SelectTrigger className="w-32">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {AXIS_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </CardHeader>
             <CardContent>
-              {comparisonData.length === 0 ? (
+              {!showComparison ? (
+                <p className="text-sm text-muted-foreground">
+                  Hidden -- this compares PT against LLAB/FM, which doesn't apply once a specific cadet or PMT type is filtered.
+                </p>
+              ) : comparisonData.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No units to compare.</p>
               ) : (
                 <ResponsiveContainer width="100%" height={240}>
@@ -282,60 +360,40 @@ export function AnalyticsScreen({ roster, events, attendance }: Props) {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={distribution} margin={chartMargin}>
-                <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
-                <XAxis dataKey="standing" tick={{ fill: "var(--chart-ink-muted)", fontSize: 11 }} tickLine={false} axisLine={{ stroke: "var(--chart-axis)" }} />
-                <YAxis tick={{ fill: "var(--chart-ink-muted)", fontSize: 11 }} tickLine={false} axisLine={{ stroke: "var(--chart-axis)" }} allowDecimals={false} />
-                <Tooltip cursor={{ fill: "var(--muted)" }} contentStyle={{ background: "var(--popover)", border: "1px solid var(--border)", borderRadius: 6, fontSize: 12 }} />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Bar dataKey="ptCount" name="PT" fill="var(--chart-series-1)" radius={[3, 3, 0, 0]} maxBarSize={40} />
-                <Bar dataKey="llabFmCount" name="LLAB/FM" fill="var(--chart-series-3)" radius={[3, 3, 0, 0]} maxBarSize={40} />
-              </BarChart>
-            </ResponsiveContainer>
+            {!showDistribution ? (
+              <p className="text-sm text-muted-foreground">
+                Hidden -- this splits standing counts between PT and LLAB/FM, which doesn't apply once a specific cadet or PMT type is filtered.
+              </p>
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={distribution} margin={chartMargin}>
+                  <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
+                  <XAxis dataKey="standing" tick={{ fill: "var(--chart-ink-muted)", fontSize: 11 }} tickLine={false} axisLine={{ stroke: "var(--chart-axis)" }} />
+                  <YAxis tick={{ fill: "var(--chart-ink-muted)", fontSize: 11 }} tickLine={false} axisLine={{ stroke: "var(--chart-axis)" }} allowDecimals={false} />
+                  <Tooltip cursor={{ fill: "var(--muted)" }} contentStyle={{ background: "var(--popover)", border: "1px solid var(--border)", borderRadius: 6, fontSize: 12 }} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Bar dataKey="ptCount" name="PT" fill="var(--chart-series-1)" radius={[3, 3, 0, 0]} maxBarSize={40} />
+                  <Bar dataKey="llabFmCount" name="LLAB/FM" fill="var(--chart-series-3)" radius={[3, 3, 0, 0]} maxBarSize={40} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
       </motion.div>
 
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25, delay: 0.15 }}>
         <Card>
-          <CardHeader className="flex-row items-center justify-between space-y-0">
+          <CardHeader>
             <CardTitle>
               <Table2 className="h-4 w-4 text-primary" />
               Master attendance table
             </CardTitle>
-            <div className="flex items-center gap-2">
-              <CadetFilterCombobox roster={sortedActiveRoster} value={tableCadetId} onChange={setTableCadetId} allLabel="All cadets" />
-              <Select value={tableFlight} onValueChange={(v) => setTableFlight(v as Flight | "All")}>
-                <SelectTrigger className="w-28">
-                  <SelectValue placeholder="Flight" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="All">All flights</SelectItem>
-                  {FLIGHTS.map((f) => (
-                    <SelectItem key={f} value={f}>
-                      {f} Flight
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select value={tableType} onValueChange={(v) => setTableType(v as PmtEventType)}>
-                <SelectTrigger className="w-32">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {PMT_EVENT_TYPES.map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {t}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
           </CardHeader>
           <CardContent>
-            {tableEvents.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No {tableType} sessions yet.</p>
+            {!showTable ? (
+              <p className="text-sm text-muted-foreground">Pick a specific PMT type above to view the master attendance table.</p>
+            ) : tableEvents.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No {masterPmtType} sessions yet.</p>
             ) : (
               <div className="overflow-x-auto">
                 <Table aria-label="Master attendance table">
@@ -374,7 +432,7 @@ export function AnalyticsScreen({ roster, events, attendance }: Props) {
                     {tableRoster.length === 0 && (
                       <TableRow>
                         <TableCell colSpan={tableEvents.length + 2} className="text-center text-muted-foreground">
-                          No active cadets on the roster.
+                          No active cadets match this filter.
                         </TableCell>
                       </TableRow>
                     )}
