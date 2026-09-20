@@ -11,6 +11,7 @@ import { useExtraEvents } from "./hooks/useExtraEvents";
 import { useAttendance } from "./hooks/useAttendance";
 import { useTrainingObjectivesCatalog } from "./hooks/useTrainingObjectivesCatalog";
 import { useAutoFailCompletions } from "./hooks/useAutoFailCompletions";
+import { useAbsenceMemoAssignments } from "./hooks/useAbsenceMemoAssignments";
 import { useTheme } from "./hooks/useTheme";
 import { DashboardScreen } from "./screens/DashboardScreen";
 import { RosterScreen } from "./screens/RosterScreen";
@@ -38,14 +39,25 @@ function App() {
   const attendanceState = useAttendance();
   const catalogState = useTrainingObjectivesCatalog();
   const { applyAbsenceNotPass } = useAutoFailCompletions();
+  const absenceMemoAssignmentsState = useAbsenceMemoAssignments();
   const { theme, toggleTheme } = useTheme();
 
   const [screen, setScreen] = useState<Screen>("dashboard");
 
   const dataLoading =
-    rosterState.loading || eventsState.loading || extraEventsState.loading || attendanceState.loading || catalogState.loading;
+    rosterState.loading ||
+    eventsState.loading ||
+    extraEventsState.loading ||
+    attendanceState.loading ||
+    catalogState.loading ||
+    absenceMemoAssignmentsState.loading;
   const loadError =
-    rosterState.error || eventsState.error || extraEventsState.error || attendanceState.error || catalogState.error;
+    rosterState.error ||
+    eventsState.error ||
+    extraEventsState.error ||
+    attendanceState.error ||
+    catalogState.error ||
+    absenceMemoAssignmentsState.error;
 
   return (
     <div className="flex h-screen flex-col">
@@ -92,7 +104,7 @@ function App() {
             </TabsTrigger>
             <TabsTrigger value="attendance">
               <ClipboardCheck className="h-3.5 w-3.5" />
-              Post-Accountability
+              Accountability
             </TabsTrigger>
             <TabsTrigger value="analytics">
               <BarChart2 className="h-3.5 w-3.5" />
@@ -157,6 +169,8 @@ function App() {
                     updateAttendance={attendanceState.updateAttendance}
                     catalog={catalogState.catalog}
                     applyAbsenceNotPass={applyAbsenceNotPass}
+                    assignAbsenceMemo={absenceMemoAssignmentsState.assignAbsenceMemo}
+                    retractAbsenceMemoAssignment={absenceMemoAssignmentsState.retractAssignment}
                   />
                 </AnimatedPanel>
               </TabsContent>

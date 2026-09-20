@@ -98,3 +98,11 @@ export function standingForPercent(percent: number | undefined): Standing | unde
   if (percent >= STANDING_THRESHOLDS.warning) return "Warning";
   return "Hard Limit";
 }
+
+/**
+ * Mirrors the Memorandums/Memo Submissions sites' AbsenceMemoStatus -- this site only ever writes
+ * "Assigned" (the auto-created record the instant a cadet is marked Absent) and reads statuses back
+ * to decide whether a PMT is already covered by an in-flight memo.
+ */
+export const ABSENCE_MEMO_STATUSES = ["Assigned", "Pending", "Accepted", "Rejected", "Returned"] as const;
+export type AbsenceMemoStatus = (typeof ABSENCE_MEMO_STATUSES)[number];

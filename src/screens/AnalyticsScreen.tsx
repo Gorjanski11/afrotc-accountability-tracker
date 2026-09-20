@@ -83,6 +83,16 @@ export function AnalyticsScreen({ roster, events, attendance }: Props) {
 
   const hasCadetFilter = masterCadetId !== ALL_CADETS;
 
+  // Only one of the five master filters can be active at a time -- picking any one clears all the
+  // others, and the last one picked is what takes effect.
+  const setExclusiveFilter = (which: "cadet" | "flight" | "group" | "class" | "pmtType", value: string) => {
+    setMasterCadetId(which === "cadet" ? value : ALL_CADETS);
+    setMasterFlight(which === "flight" ? (value as Flight | "All") : "All");
+    setMasterGroup(which === "group" ? (value as Group | "All") : "All");
+    setMasterClass(which === "class" ? (value as ClassFilter | "All") : "All");
+    setMasterPmtType(which === "pmtType" ? (value as PmtEventType | "All") : "All");
+  };
+
   // Roster narrowed by Flight/Group/Class -- feeds every roster-based chart. The individual-cadet
   // filter is handled separately per-chart since it changes *which* computation runs, not just
   // which rows are included.
@@ -189,9 +199,14 @@ export function AnalyticsScreen({ roster, events, attendance }: Props) {
       </h2>
 
       <div className="mb-6 flex flex-wrap items-center gap-3 rounded-md border border-input bg-card p-3">
-        <span className="text-xs font-medium text-muted-foreground">Filters (apply to everything below):</span>
-        <CadetFilterCombobox roster={sortedActiveRoster} value={masterCadetId} onChange={setMasterCadetId} allLabel="All cadets" />
-        <Select value={masterFlight} onValueChange={(v) => setMasterFlight(v as Flight | "All")}>
+        <span className="text-xs font-medium text-muted-foreground">Filter (only one at a time -- the last one picked wins):</span>
+        <CadetFilterCombobox
+          roster={sortedActiveRoster}
+          value={masterCadetId}
+          onChange={(v) => setExclusiveFilter("cadet", v)}
+          allLabel="All cadets"
+        />
+        <Select value={masterFlight} onValueChange={(v) => setExclusiveFilter("flight", v)}>
           <SelectTrigger className="w-28">
             <SelectValue placeholder="Flight" />
           </SelectTrigger>
@@ -204,7 +219,7 @@ export function AnalyticsScreen({ roster, events, attendance }: Props) {
             ))}
           </SelectContent>
         </Select>
-        <Select value={masterGroup} onValueChange={(v) => setMasterGroup(v as Group | "All")}>
+        <Select value={masterGroup} onValueChange={(v) => setExclusiveFilter("group", v)}>
           <SelectTrigger className="w-28">
             <SelectValue placeholder="Group" />
           </SelectTrigger>
@@ -217,7 +232,7 @@ export function AnalyticsScreen({ roster, events, attendance }: Props) {
             ))}
           </SelectContent>
         </Select>
-        <Select value={masterClass} onValueChange={(v) => setMasterClass(v as ClassFilter | "All")}>
+        <Select value={masterClass} onValueChange={(v) => setExclusiveFilter("class", v)}>
           <SelectTrigger className="w-28">
             <SelectValue placeholder="Class" />
           </SelectTrigger>
@@ -230,7 +245,7 @@ export function AnalyticsScreen({ roster, events, attendance }: Props) {
             ))}
           </SelectContent>
         </Select>
-        <Select value={masterPmtType} onValueChange={(v) => setMasterPmtType(v as PmtEventType | "All")}>
+        <Select value={masterPmtType} onValueChange={(v) => setExclusiveFilter("pmtType", v)}>
           <SelectTrigger className="w-32">
             <SelectValue placeholder="PMT type" />
           </SelectTrigger>

@@ -1,4 +1,5 @@
 import type {
+  AbsenceMemoStatus,
   AbsenceReason,
   AsLevel,
   AttendanceStatus,
@@ -91,4 +92,17 @@ export interface TrainingObjectiveRef {
   number: string;
   graded: boolean;
   proficiencyByLevel: Record<string, string>;
+}
+
+/**
+ * Minimal mirror of the shared `absenceMemos` collection (owned in full by the Memorandums and
+ * Memo Submissions sites) -- just enough for this site to know whether a cadet+PMT absence already
+ * has an in-flight memo covering it, so marking someone Absent auto-creates the initial "Assigned"
+ * record exactly once.
+ */
+export interface AbsenceMemoRef {
+  id: string;
+  cadetId: string;
+  pmtEventIds: string[];
+  status: AbsenceMemoStatus;
 }

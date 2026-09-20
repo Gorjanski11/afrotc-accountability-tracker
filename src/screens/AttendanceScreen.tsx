@@ -18,6 +18,8 @@ interface Props {
   updateAttendance: (id: string, input: AttendanceInput) => Promise<void>;
   catalog: TrainingObjectiveRef[];
   applyAbsenceNotPass: (cadet: RosterPerson, pmtEvent: PmtEvent, catalogById: Map<string, TrainingObjectiveRef>) => Promise<void>;
+  assignAbsenceMemo: (cadet: RosterPerson, pmtEvent: PmtEvent, reason: AbsenceReason | undefined, attendanceId: string) => Promise<void>;
+  retractAbsenceMemoAssignment: (cadetId: string, pmtEventId: string) => Promise<void>;
 }
 
 const NONE = "__none__";
@@ -26,7 +28,17 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-export function AttendanceScreen({ roster, events, attendance, createAttendance, updateAttendance, catalog, applyAbsenceNotPass }: Props) {
+export function AttendanceScreen({
+  roster,
+  events,
+  attendance,
+  createAttendance,
+  updateAttendance,
+  catalog,
+  applyAbsenceNotPass,
+  assignAbsenceMemo,
+  retractAbsenceMemoAssignment,
+}: Props) {
   const catalogById = useMemo(() => new Map(catalog.map((o) => [o.id, o])), [catalog]);
   const sortedEvents = useMemo(() => [...events].sort((a, b) => b.eventDate.localeCompare(a.eventDate)), [events]);
 
@@ -55,6 +67,17 @@ export function AttendanceScreen({ roster, events, attendance, createAttendance,
     setTwFilter(tw);
     const nextEvents = tw === undefined ? sortedEvents : sortedEvents.filter((e) => e.trainingWeek === tw);
     setSelectedEventId(nextEvents[0]?.id);
+  };
+
+  // Group and Flight are mutually exclusive -- picking one clears the other, so only one of the
+  // two can ever be scoping the roster at a time.
+  const handleGroupChange = (v: string) => {
+    setGroupFilter(v as Group | "All");
+    if (v !== "All") setFlightFilter("All");
+  };
+  const handleFlightChange = (v: string) => {
+    setFlightFilter(v as Flight | "All");
+    if (v !== "All") setGroupFilter("All");
   };
 
   const selectedEvent = sortedEvents.find((e) => e.id === selectedEventId);
@@ -89,6 +112,24 @@ export function AttendanceScreen({ roster, events, attendance, createAttendance,
     setPending((prev) => ({ ...prev, [cadetId]: { status, absenceReason } }));
   };
 
+  /**
+   * Clicking a status that's already active (whether from a pending edit or an already-saved
+   * record) unselects it -- drops any pending override for this cadet, reverting the cell back to
+   * whatever's actually saved (or blank if nothing is). Clicking a different status still just sets it.
+   */
+  const handleStatusClick = (cadetId: string, status: AttendanceStatus) => {
+    const current = getValue(cadetId);
+    if (current.status === status) {
+      setPending((prev) => {
+        const next = { ...prev };
+        delete next[cadetId];
+        return next;
+      });
+    } else {
+      setValue(cadetId, status, status === "A" ? (current.absenceReason ?? ABSENCE_REASONS[0]) : undefined);
+    }
+  };
+
   const dirtyCount = Object.keys(pending).length;
   const windowClosed = selectedEvent ? isPostAccountabilityWindowClosed(selectedEvent) : false;
 
@@ -107,15 +148,30 @@ export function AttendanceScreen({ roster, events, attendance, createAttendance,
           recordedAt: nowIso(),
           notes: existing?.notes ?? "",
         };
-        if (existing) await updateAttendance(existing.id, input);
-        else await createAttendance(input);
+        let attendanceId: string;
+        if (existing) {
+          await updateAttendance(existing.id, input);
+          attendanceId = existing.id;
+        } else {
+          const created = await createAttendance(input);
+          attendanceId = created.id;
+        }
 
-        // Absence auto-fail (explicit project rule): every Training Objective tied to this PMT
-        // becomes Not Pass for this cadet, overwriting whatever was there. Never runs for any
-        // other status, and nothing here ever auto-reverts it later.
         if (value.status === "A") {
           const cadet = roster.find((p) => p.id === cadetId);
-          if (cadet) await applyAbsenceNotPass(cadet, selectedEvent, catalogById);
+          if (cadet) {
+            // Absence auto-fail (explicit project rule): every Training Objective tied to this PMT
+            // becomes Not Pass for this cadet, overwriting whatever was there. Never runs for any
+            // other status, and nothing here ever auto-reverts it later.
+            await applyAbsenceNotPass(cadet, selectedEvent, catalogById);
+            // An Absence Memo is assigned to the cadet the instant they're marked Absent -- the
+            // cadet then picks it up from the Memo Submissions site.
+            await assignAbsenceMemo(cadet, selectedEvent, value.absenceReason, attendanceId);
+          }
+        } else {
+          // A mistaken Absent entry corrected to something else before the cadet ever submitted a
+          // memo for it -- retract the auto-assignment so it doesn't sit there needing action.
+          await retractAbsenceMemoAssignment(cadetId, selectedEventId);
         }
       }
       setPending({});
@@ -131,7 +187,7 @@ export function AttendanceScreen({ roster, events, attendance, createAttendance,
       <div className="mb-4 flex items-center justify-between">
         <h2 className="flex items-center gap-2 text-2xl font-semibold">
           <ClipboardCheck className="h-5 w-5 text-primary" />
-          Post-Accountability
+          Accountability
         </h2>
         <div className="flex items-center gap-2">
           {saveError && <span className="text-sm text-destructive">{saveError}</span>}
@@ -171,7 +227,7 @@ export function AttendanceScreen({ roster, events, attendance, createAttendance,
             )}
           </SelectContent>
         </Select>
-        <Select value={groupFilter} onValueChange={(v) => setGroupFilter(v as Group | "All")}>
+        <Select value={groupFilter} onValueChange={handleGroupChange}>
           <SelectTrigger className="w-36">
             <SelectValue placeholder="Group" />
           </SelectTrigger>
@@ -184,7 +240,7 @@ export function AttendanceScreen({ roster, events, attendance, createAttendance,
             ))}
           </SelectContent>
         </Select>
-        <Select value={flightFilter} onValueChange={(v) => setFlightFilter(v as Flight | "All")}>
+        <Select value={flightFilter} onValueChange={handleFlightChange}>
           <SelectTrigger className="w-32">
             <SelectValue placeholder="Flight" />
           </SelectTrigger>
@@ -207,6 +263,8 @@ export function AttendanceScreen({ roster, events, attendance, createAttendance,
 
       {!selectedEvent ? (
         <p className="text-sm text-muted-foreground">No PMT selected -- add one from the Events tab first.</p>
+      ) : groupFilter === "All" && flightFilter === "All" ? (
+        <p className="text-sm text-muted-foreground">Pick a Group or a Flight above to load the roster.</p>
       ) : (
         <Table aria-label="Post-Accountability entry">
           <TableHeader>
@@ -236,7 +294,7 @@ export function AttendanceScreen({ roster, events, attendance, createAttendance,
                             value.status === status && statusActiveClass(status),
                             isDirty && "ring-2 ring-primary"
                           )}
-                          onClick={() => setValue(cadet.id, status, status === "A" ? (value.absenceReason ?? ABSENCE_REASONS[0]) : undefined)}
+                          onClick={() => handleStatusClick(cadet.id, status)}
                         >
                           {status}
                         </Button>

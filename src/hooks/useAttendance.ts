@@ -34,8 +34,11 @@ export function useAttendance() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | undefined>();
 
-  const refetch = useCallback(async () => {
-    setLoading(true);
+  // `silent` skips the loading flip -- App.tsx swaps to a full-page skeleton while any hook is
+  // loading, which would otherwise unmount the Accountability screen mid-Save every time a
+  // per-cadet write in that loop triggers its own post-write refetch.
+  const refetch = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const snap = await getDocs(collection(db, COLLECTION));
       setAttendance(snap.docs.map((d) => mapAttendance(d.id, d.data())));
@@ -43,7 +46,7 @@ export function useAttendance() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load attendance.");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
@@ -54,7 +57,7 @@ export function useAttendance() {
   const createAttendance = useCallback(
     async (input: AttendanceInput) => {
       const ref = await addDoc(collection(db, COLLECTION), { ...sanitizeForFirestore(input), createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-      await refetch();
+      await refetch(true);
       return { id: ref.id, ...input } satisfies Attendance;
     },
     [refetch]
@@ -63,7 +66,7 @@ export function useAttendance() {
   const updateAttendance = useCallback(
     async (id: string, input: AttendanceInput) => {
       await updateDoc(doc(db, COLLECTION, id), { ...sanitizeForFirestore(input), updatedAt: serverTimestamp() });
-      await refetch();
+      await refetch(true);
     },
     [refetch]
   );
