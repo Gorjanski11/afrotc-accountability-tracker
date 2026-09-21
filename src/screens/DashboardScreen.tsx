@@ -137,6 +137,16 @@ export function DashboardScreen({ roster, events, extraEvents, attendance }: Pro
   const [groupFilter, setGroupFilter] = useState<Group | "All">("All");
   const [standingFilter, setStandingFilter] = useState<Standing | "All">("All");
 
+  // Group and Flight are mutually exclusive -- picking one clears the other.
+  const handleFlightChange = (v: string) => {
+    setFlightFilter(v as Flight | "All");
+    if (v !== "All") setGroupFilter("All");
+  };
+  const handleGroupChange = (v: string) => {
+    setGroupFilter(v as Group | "All");
+    if (v !== "All") setFlightFilter("All");
+  };
+
   const activeRoster = useMemo(() => roster.filter((p) => p.status === "Active"), [roster]);
   const pmtEventsById = useMemo(() => new Map(events.map((e) => [e.id, e])), [events]);
 
@@ -304,7 +314,7 @@ export function DashboardScreen({ roster, events, extraEvents, attendance }: Pro
             Standing by cadet
           </CardTitle>
           <div className="flex items-center gap-2">
-            <Select value={flightFilter} onValueChange={(v) => setFlightFilter(v as Flight | "All")}>
+            <Select value={flightFilter} onValueChange={handleFlightChange}>
               <SelectTrigger className="w-32">
                 <SelectValue placeholder="Flight" />
               </SelectTrigger>
@@ -317,7 +327,7 @@ export function DashboardScreen({ roster, events, extraEvents, attendance }: Pro
                 ))}
               </SelectContent>
             </Select>
-            <Select value={groupFilter} onValueChange={(v) => setGroupFilter(v as Group | "All")}>
+            <Select value={groupFilter} onValueChange={handleGroupChange}>
               <SelectTrigger className="w-32">
                 <SelectValue placeholder="Group" />
               </SelectTrigger>

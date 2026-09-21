@@ -23,6 +23,16 @@ export function RosterScreen({ roster, updatePerson }: Props) {
   const [groupFilter, setGroupFilter] = useState<Group | "All">("All");
   const [editing, setEditing] = useState<RosterPerson | undefined>();
 
+  // Group and Flight are mutually exclusive -- picking one clears the other.
+  const handleFlightChange = (v: string) => {
+    setFlightFilter(v as Flight | "All");
+    if (v !== "All") setGroupFilter("All");
+  };
+  const handleGroupChange = (v: string) => {
+    setGroupFilter(v as Group | "All");
+    if (v !== "All") setFlightFilter("All");
+  };
+
   const rows = useMemo(() => {
     const query = search.trim().toLowerCase();
     return roster
@@ -59,7 +69,7 @@ export function RosterScreen({ roster, updatePerson }: Props) {
             ))}
           </SelectContent>
         </Select>
-        <Select value={flightFilter} onValueChange={(v) => setFlightFilter(v as Flight | "All")}>
+        <Select value={flightFilter} onValueChange={handleFlightChange}>
           <SelectTrigger className="w-40">
             <SelectValue placeholder="Flight" />
           </SelectTrigger>
@@ -72,7 +82,7 @@ export function RosterScreen({ roster, updatePerson }: Props) {
             ))}
           </SelectContent>
         </Select>
-        <Select value={groupFilter} onValueChange={(v) => setGroupFilter(v as Group | "All")}>
+        <Select value={groupFilter} onValueChange={handleGroupChange}>
           <SelectTrigger className="w-40">
             <SelectValue placeholder="Group" />
           </SelectTrigger>
