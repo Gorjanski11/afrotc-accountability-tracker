@@ -12,6 +12,7 @@ import { useTrainingObjectivesCatalog } from "./hooks/useTrainingObjectivesCatal
 import { useAutoFailCompletions } from "./hooks/useAutoFailCompletions";
 import { useAbsenceMemoAssignments } from "./hooks/useAbsenceMemoAssignments";
 import { useAuth } from "./hooks/useAuth";
+import { isAuthorizedStaff } from "./domain/access";
 import { SignInScreen } from "./components/SignInScreen";
 import { ChangePasswordDialog } from "./components/ChangePasswordDialog";
 import { DashboardScreen } from "./screens/DashboardScreen";
@@ -71,6 +72,20 @@ function App() {
 
   if (!user) {
     return <SignInScreen signIn={signIn} />;
+  }
+
+  if (!dataLoading && !loadError && !isAuthorizedStaff(user.email, rosterState.roster)) {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center gap-3 bg-background p-6 text-center">
+        <p className="text-sm text-destructive">
+          Your account ({user.email}) isn't authorized for the Accountability Tracker. Contact TRG if you believe this is a mistake.
+        </p>
+        <Button variant="secondary" onClick={() => void signOut()}>
+          <LogOut className="h-4 w-4" />
+          Sign out
+        </Button>
+      </div>
+    );
   }
 
   return (

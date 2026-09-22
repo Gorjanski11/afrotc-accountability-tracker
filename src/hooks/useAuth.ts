@@ -10,11 +10,17 @@ import {
 } from "firebase/auth";
 import { auth } from "../lib/firebase";
 
+const INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000;
+const ACTIVITY_EVENTS = ["mousedown", "mousemove", "keydown", "scroll", "touchstart"] as const;
+
 /**
  * Cadre-only login (Email/Password). Accounts are created individually by an admin in the Firebase
  * Console -- there is no public sign-up screen in this app, so having any account at all is the
  * access control. `authLoading` covers the brief moment before Firebase reports whether a session
  * is already active, so the app doesn't flash the sign-in screen for an already-signed-in user.
+ * Session persistence is set to browser-session-only (see lib/firebase.ts), so closing the tab
+ * signs the user out; this hook additionally signs out after 15 minutes with no user activity
+ * while the tab stays open.
  */
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
@@ -27,6 +33,23 @@ export function useAuth() {
     });
     return unsubscribe;
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const resetTimer = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        void signOut(auth);
+      }, INACTIVITY_TIMEOUT_MS);
+    };
+    resetTimer();
+    for (const event of ACTIVITY_EVENTS) window.addEventListener(event, resetTimer);
+    return () => {
+      clearTimeout(timer);
+      for (const event of ACTIVITY_EVENTS) window.removeEventListener(event, resetTimer);
+    };
+  }, [user]);
 
   const signIn = useCallback(async (email: string, password: string) => {
     await signInWithEmailAndPassword(auth, email, password);
