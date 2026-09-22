@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { addDoc, collection, deleteDoc, doc, getDocs, serverTimestamp } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, getDocs, serverTimestamp, updateDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { sanitizeForFirestore } from "../lib/firestoreUtils";
 import type { AbsenceMemoStatus, AbsenceReason } from "../domain/constants";
@@ -12,6 +12,7 @@ function mapRef(id: string, data: Record<string, unknown>): AbsenceMemoRef {
     id,
     cadetId: (data.cadetId as string) ?? "",
     pmtEventIds: (data.pmtEventIds as string[]) ?? [],
+    attendanceIds: (data.attendanceIds as string[]) ?? [],
     status: ((data.status as AbsenceMemoStatus) ?? "Assigned") as AbsenceMemoStatus,
   };
 }
@@ -96,5 +97,34 @@ export function useAbsenceMemoAssignments() {
     [refs, refetch]
   );
 
-  return { refs, loading, error, refetch, assignAbsenceMemo, retractAssignment };
+  /**
+   * A cadet can pre-submit an Absence Memo for a future PMT they already know they'll miss (Memo
+   * Submissions), before this site has ever recorded attendance for it -- that memo sits at
+   * "Pending" with a "" placeholder in `attendanceIds` at the slot matching that PMT. The instant
+   * this site actually marks that cadet Absent for the real thing, this links the newly-created
+   * Attendance doc id into that placeholder and reports back so the caller can save the attendance
+   * straight to "PE" (excuse already pending) instead of "A".
+   */
+  const linkPreSubmittedAttendance = useCallback(
+    async (cadetId: string, pmtEventId: string, attendanceId: string): Promise<boolean> => {
+      const target = refs.find((m) => {
+        if (m.cadetId !== cadetId || m.status !== "Pending") return false;
+        const index = m.pmtEventIds.indexOf(pmtEventId);
+        return index !== -1 && !m.attendanceIds[index];
+      });
+      if (!target) return false;
+
+      const index = target.pmtEventIds.indexOf(pmtEventId);
+      const nextAttendanceIds = [...target.attendanceIds];
+      while (nextAttendanceIds.length < target.pmtEventIds.length) nextAttendanceIds.push("");
+      nextAttendanceIds[index] = attendanceId;
+
+      await updateDoc(doc(db, COLLECTION, target.id), { attendanceIds: nextAttendanceIds, updatedAt: serverTimestamp() });
+      await refetch(true);
+      return true;
+    },
+    [refs, refetch]
+  );
+
+  return { refs, loading, error, refetch, assignAbsenceMemo, retractAssignment, linkPreSubmittedAttendance };
 }

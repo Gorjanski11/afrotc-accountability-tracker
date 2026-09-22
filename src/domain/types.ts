@@ -104,5 +104,11 @@ export interface AbsenceMemoRef {
   id: string;
   cadetId: string;
   pmtEventIds: string[];
+  /**
+   * Parallel to `pmtEventIds`. A cadet who pre-submits for a future PMT (via Memo Submissions,
+   * before attendance for it has ever been taken) has "" in the slot matching that PMT until this
+   * site links the real Attendance doc id in once that PMT actually happens and gets recorded.
+   */
+  attendanceIds: string[];
   status: AbsenceMemoStatus;
 }

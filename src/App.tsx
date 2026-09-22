@@ -153,6 +153,7 @@ function App() {
                     applyAbsenceNotPass={applyAbsenceNotPass}
                     assignAbsenceMemo={absenceMemoAssignmentsState.assignAbsenceMemo}
                     retractAbsenceMemoAssignment={absenceMemoAssignmentsState.retractAssignment}
+                    linkPreSubmittedAttendance={absenceMemoAssignmentsState.linkPreSubmittedAttendance}
                   />
                 </AnimatedPanel>
               </TabsContent>

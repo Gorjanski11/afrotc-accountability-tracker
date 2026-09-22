@@ -20,6 +20,7 @@ interface Props {
   applyAbsenceNotPass: (cadet: RosterPerson, pmtEvent: PmtEvent, catalogById: Map<string, TrainingObjectiveRef>) => Promise<void>;
   assignAbsenceMemo: (cadet: RosterPerson, pmtEvent: PmtEvent, reason: AbsenceReason | undefined, attendanceId: string) => Promise<void>;
   retractAbsenceMemoAssignment: (cadetId: string, pmtEventId: string) => Promise<void>;
+  linkPreSubmittedAttendance: (cadetId: string, pmtEventId: string, attendanceId: string) => Promise<boolean>;
 }
 
 const NONE = "__none__";
@@ -38,6 +39,7 @@ export function AttendanceScreen({
   applyAbsenceNotPass,
   assignAbsenceMemo,
   retractAbsenceMemoAssignment,
+  linkPreSubmittedAttendance,
 }: Props) {
   const catalogById = useMemo(() => new Map(catalog.map((o) => [o.id, o])), [catalog]);
   const sortedEvents = useMemo(() => [...events].sort((a, b) => b.eventDate.localeCompare(a.eventDate)), [events]);
@@ -164,9 +166,17 @@ export function AttendanceScreen({
             // becomes Not Pass for this cadet, overwriting whatever was there. Never runs for any
             // other status, and nothing here ever auto-reverts it later.
             await applyAbsenceNotPass(cadet, selectedEvent, catalogById);
-            // An Absence Memo is assigned to the cadet the instant they're marked Absent -- the
-            // cadet then picks it up from the Memo Submissions site.
-            await assignAbsenceMemo(cadet, selectedEvent, value.absenceReason, attendanceId);
+            // If the cadet already pre-submitted a memo for this PMT (they knew in advance they'd
+            // miss it), link this real Attendance doc into it and promote straight to PE -- an
+            // excuse is already in progress, so there's nothing new to assign.
+            const linked = await linkPreSubmittedAttendance(cadetId, selectedEventId, attendanceId);
+            if (linked) {
+              await updateAttendance(attendanceId, { ...input, status: "PE" });
+            } else {
+              // An Absence Memo is assigned to the cadet the instant they're marked Absent -- the
+              // cadet then picks it up from the Memo Submissions site.
+              await assignAbsenceMemo(cadet, selectedEvent, value.absenceReason, attendanceId);
+            }
           }
         } else {
           // A mistaken Absent entry corrected to something else before the cadet ever submitted a
