@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
-import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from "firebase/auth";
+import {
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signOut,
+  updatePassword,
+  reauthenticateWithCredential,
+  EmailAuthProvider,
+  type User,
+} from "firebase/auth";
 import { auth } from "../lib/firebase";
 
 /**
@@ -28,5 +36,19 @@ export function useAuth() {
     await signOut(auth);
   }, []);
 
-  return { user, authLoading, signIn, signOut: signOutUser };
+  /**
+   * Firebase requires a *recent* sign-in before it'll let a password change through -- since
+   * someone changing their temp password may have signed in a while ago, this re-proves identity
+   * with their current password first rather than surfacing a confusing "requires-recent-login"
+   * error and making them sign out and back in.
+   */
+  const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
+    const current = auth.currentUser;
+    if (!current?.email) throw new Error("Not signed in.");
+    const credential = EmailAuthProvider.credential(current.email, currentPassword);
+    await reauthenticateWithCredential(current, credential);
+    await updatePassword(current, newPassword);
+  }, []);
+
+  return { user, authLoading, signIn, signOut: signOutUser, changePassword };
 }

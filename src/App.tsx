@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { ClipboardCheck, LayoutDashboard, Users, CalendarDays, BarChart2, LogOut } from "lucide-react";
+import { ClipboardCheck, LayoutDashboard, Users, CalendarDays, BarChart2, LogOut, KeyRound } from "lucide-react";
 import { useRoster } from "./hooks/useRoster";
 import { usePmtEvents } from "./hooks/usePmtEvents";
 import { useExtraEvents } from "./hooks/useExtraEvents";
@@ -13,6 +13,7 @@ import { useAutoFailCompletions } from "./hooks/useAutoFailCompletions";
 import { useAbsenceMemoAssignments } from "./hooks/useAbsenceMemoAssignments";
 import { useAuth } from "./hooks/useAuth";
 import { SignInScreen } from "./components/SignInScreen";
+import { ChangePasswordDialog } from "./components/ChangePasswordDialog";
 import { DashboardScreen } from "./screens/DashboardScreen";
 import { RosterScreen } from "./screens/RosterScreen";
 import { EventsScreen } from "./screens/EventsScreen";
@@ -33,7 +34,8 @@ function AnimatedPanel({ children }: { children: React.ReactNode }) {
 // Firebase project/database as the TO's site: reads/writes the shared `cadets` roster and
 // `pmtEvents` calendar, owns its own attendance/extraEvents/extraEventAttendance collections.
 function App() {
-  const { user, authLoading, signIn, signOut } = useAuth();
+  const { user, authLoading, signIn, signOut, changePassword } = useAuth();
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const rosterState = useRoster();
   const eventsState = usePmtEvents();
   const extraEventsState = useExtraEvents();
@@ -85,11 +87,16 @@ function App() {
         </div>
         <div className="flex items-center gap-3">
           <span className="text-sm text-muted-foreground">{user.email}</span>
+          <Button variant="ghost" size="icon" onClick={() => setChangePasswordOpen(true)} aria-label="Change password">
+            <KeyRound className="h-4 w-4" />
+          </Button>
           <Button variant="ghost" size="icon" onClick={() => void signOut()} aria-label="Sign out">
             <LogOut className="h-4 w-4" />
           </Button>
         </div>
       </header>
+
+      <ChangePasswordDialog open={changePasswordOpen} onClose={() => setChangePasswordOpen(false)} changePassword={changePassword} />
 
       <Tabs value={screen} onValueChange={(v) => setScreen(v as Screen)} className="flex flex-1 flex-col overflow-hidden">
         <nav className="px-8">

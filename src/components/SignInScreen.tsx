@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -38,7 +38,6 @@ export function SignInScreen({ signIn }: Props) {
             </span>
             <CardTitle>Borinkeneers Accountability Tracker</CardTitle>
           </div>
-          <CardDescription>Cadre access only -- accounts are created individually, there's no public sign-up.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
