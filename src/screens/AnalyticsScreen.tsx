@@ -5,7 +5,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { BarChart2, TrendingUp, Scale, PieChart, Table2, Users, Gauge, TriangleAlert, CalendarDays } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { BarChart2, TrendingUp, Scale, PieChart, Table2, Users, Gauge, TriangleAlert, CalendarDays, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PMT_EVENT_TYPES, FLIGHTS, GROUPS, deriveClass, bucketForEventType, type PmtEventType, type Flight, type Group } from "../domain/constants";
 import { computeCadetAttendanceSummary, computeCombinedPercent, absencesRemainingForGoodStanding, type BucketTally } from "../domain/attendance";
@@ -20,6 +21,7 @@ import {
 } from "../domain/analytics";
 import { compareByLastName } from "../domain/nameUtils";
 import { CadetFilterCombobox, ALL_CADETS } from "../components/CadetFilterCombobox";
+import { exportAttendanceData } from "../lib/exportAttendanceData";
 import type { Attendance, PmtEvent, RosterPerson } from "../domain/types";
 
 interface Props {
@@ -117,6 +119,7 @@ export function AnalyticsScreen({ roster, events, attendance }: Props) {
   const [masterClass, setMasterClass] = useState<ClassFilter | "All">("All");
   const [masterPmtType, setMasterPmtType] = useState<PmtEventType | "All">("All");
   const [axis, setAxis] = useState<UnitAxis>("flight");
+  const [exporting, setExporting] = useState(false);
 
   const activeRoster = useMemo(() => roster.filter((p) => p.status === "Active"), [roster]);
   const sortedActiveRoster = useMemo(() => [...activeRoster].sort((a, b) => compareByLastName(a.name, b.name)), [activeRoster]);
@@ -242,12 +245,27 @@ export function AnalyticsScreen({ roster, events, attendance }: Props) {
     return map;
   }, [attendance]);
 
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      await exportAttendanceData(roster, events, attendance);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <div>
-      <h2 className="mb-4 flex items-center gap-2 text-2xl font-semibold">
-        <BarChart2 className="h-5 w-5 text-primary" />
-        Analytics
-      </h2>
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="flex items-center gap-2 text-2xl font-semibold">
+          <BarChart2 className="h-5 w-5 text-primary" />
+          Analytics
+        </h2>
+        <Button variant="outline" size="sm" onClick={handleExport} disabled={exporting}>
+          <Download className="h-4 w-4" />
+          {exporting ? "Exporting..." : "Export to Excel"}
+        </Button>
+      </div>
 
       <div className="mb-6 flex flex-wrap items-center gap-3 rounded-md border border-input bg-card p-3">
         <span className="text-xs font-medium text-muted-foreground">Filter (only one at a time -- the last one picked wins):</span>
