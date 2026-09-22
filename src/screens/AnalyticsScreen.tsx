@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { BarChart2, TrendingUp, Scale, PieChart, Table2, Users, Gauge, TriangleAlert, CalendarDays } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PMT_EVENT_TYPES, FLIGHTS, GROUPS, deriveClass, bucketForEventType, type PmtEventType, type Flight, type Group } from "../domain/constants";
-import { computeCadetAttendanceSummary, computeCombinedPercent } from "../domain/attendance";
+import { computeCadetAttendanceSummary, computeCombinedPercent, absencesRemainingForGoodStanding, type BucketTally } from "../domain/attendance";
 import {
   computeSessionTrend,
   computeCadetSessionTrend,
@@ -50,6 +50,47 @@ function StatTile({ icon, label, value, tone, index }: { icon: React.ReactNode; 
         </CardContent>
       </Card>
     </motion.div>
+  );
+}
+
+/**
+ * One bucket's numbers for a single selected cadet -- present/total (AE counts as present),
+ * attendance %, and (for PT/LLAB-FM, which carry a Good-standing threshold) standing and how many
+ * more unexcused absences they could take before dropping out of Good. `hasThreshold: false` (the
+ * D&C/"Other" bucket) drops the standing badge and the absences-left tile, since neither applies.
+ */
+function CadetBucketStats({ label, tally, hasThreshold = true }: { label: string; tally: BucketTally; hasThreshold?: boolean }) {
+  const presentCount = tally.statusCounts.P + tally.statusCounts.AE;
+  const absencesLeft = hasThreshold ? absencesRemainingForGoodStanding(tally) : undefined;
+  return (
+    <div className="rounded-md border border-input p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-sm font-medium">{label}</span>
+        {hasThreshold && (tally.standing ? <StandingBadge standing={tally.standing} /> : <span className="text-xs text-muted-foreground">No data yet</span>)}
+      </div>
+      <div className={cn("grid gap-2 text-center", hasThreshold ? "grid-cols-3" : "grid-cols-2")}>
+        <div>
+          <div className="text-lg font-semibold tabular-nums">
+            {tally.countedEvents === 0 ? "—" : `${presentCount}/${tally.countedEvents}`}
+          </div>
+          <div className="text-[11px] text-muted-foreground">Present/Total</div>
+        </div>
+        <div>
+          <div className="text-lg font-semibold tabular-nums">{pct(tally.percent)}</div>
+          <div className="text-[11px] text-muted-foreground">Attendance %</div>
+        </div>
+        {hasThreshold && (
+          <div>
+            <div className="text-lg font-semibold tabular-nums">{absencesLeft ?? "—"}</div>
+            <div className="text-[11px] text-muted-foreground">Absences left (Good)</div>
+          </div>
+        )}
+      </div>
+      <div className="mt-2 text-center text-[11px] text-muted-foreground">
+        Late: {tally.statusCounts.L} · Excused: {tally.statusCounts.AE} · Unexcused: {tally.statusCounts.A}
+        {tally.statusCounts.PE > 0 && ` · Pending review: ${tally.statusCounts.PE}`}
+      </div>
+    </div>
   );
 }
 
@@ -137,9 +178,11 @@ export function AnalyticsScreen({ roster, events, attendance }: Props) {
   }, [trend]);
 
   // The PT-vs-LLAB/FM comparison and standing-distribution charts both inherently split their data
-  // into a PT series and an LLAB/FM series -- neither means anything once the PMT-type filter has
-  // already narrowed the data to one type, or once the cadet filter has narrowed it to one person
-  // (nothing left to compare "by unit").
+  // into a PT series and an LLAB/FM series across multiple units/cadets -- neither means anything
+  // once the PMT-type filter has already narrowed the data to one type, or once the cadet filter
+  // has narrowed the view to one person (nothing left to compare "by unit"). The cadet-filter case
+  // isn't actually hidden, though -- each card swaps in that one cadet's own numbers instead (see
+  // the `hasCadetFilter` branches below).
   const showComparison = !hasCadetFilter && masterPmtType === "All";
   const showDistribution = !hasCadetFilter && masterPmtType === "All";
 
@@ -158,6 +201,14 @@ export function AnalyticsScreen({ roster, events, attendance }: Props) {
   );
 
   const distribution = useMemo(() => computeStandingDistribution(filteredRoster, attendance, pmtEventsById), [filteredRoster, attendance, pmtEventsById]);
+
+  // The one selected cadet's own numbers -- shown in place of the by-unit comparison/distribution
+  // charts, which have nothing left to compare/split once the view is narrowed to one person.
+  const selectedCadet = useMemo(() => (hasCadetFilter ? roster.find((p) => p.id === masterCadetId) : undefined), [hasCadetFilter, roster, masterCadetId]);
+  const selectedCadetSummary = useMemo(
+    () => (hasCadetFilter ? computeCadetAttendanceSummary(masterCadetId, attendance, pmtEventsById) : undefined),
+    [hasCadetFilter, masterCadetId, attendance, pmtEventsById]
+  );
 
   const cohortCombinedPercent = useMemo(() => {
     const percents = statsRoster.map((p) => computeCombinedPercent(p.id, attendance, pmtEventsById)).filter((n): n is number => n !== undefined);
@@ -321,7 +372,7 @@ export function AnalyticsScreen({ roster, events, attendance }: Props) {
             <CardHeader className="flex-row items-center justify-between space-y-0">
               <CardTitle>
                 <Scale className="h-4 w-4 text-primary" />
-                PT vs LLAB/FM by unit
+                {hasCadetFilter && selectedCadet ? `PT vs LLAB/FM for ${selectedCadet.name}` : "PT vs LLAB/FM by unit"}
               </CardTitle>
               {showComparison && (
                 <Select value={axis} onValueChange={(v) => setAxis(v as UnitAxis)}>
@@ -340,9 +391,16 @@ export function AnalyticsScreen({ roster, events, attendance }: Props) {
             </CardHeader>
             <CardContent>
               {!showComparison ? (
-                <p className="text-sm text-muted-foreground">
-                  Hidden -- this compares PT against LLAB/FM, which doesn't apply once a specific cadet or PMT type is filtered.
-                </p>
+                hasCadetFilter && selectedCadetSummary ? (
+                  <div className="space-y-3">
+                    <CadetBucketStats label="PT" tally={selectedCadetSummary.pt} />
+                    <CadetBucketStats label="LLAB/FM" tally={selectedCadetSummary.llabFm} />
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Hidden -- this compares PT against LLAB/FM, which doesn't apply once a specific PMT type is filtered.
+                  </p>
+                )
               ) : comparisonData.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No units to compare.</p>
               ) : (
@@ -371,14 +429,32 @@ export function AnalyticsScreen({ roster, events, attendance }: Props) {
           <CardHeader>
             <CardTitle>
               <PieChart className="h-4 w-4 text-primary" />
-              Standing distribution (active cadets)
+              {hasCadetFilter && selectedCadet ? `Standing for ${selectedCadet.name}` : "Standing distribution (active cadets)"}
             </CardTitle>
           </CardHeader>
           <CardContent>
             {!showDistribution ? (
-              <p className="text-sm text-muted-foreground">
-                Hidden -- this splits standing counts between PT and LLAB/FM, which doesn't apply once a specific cadet or PMT type is filtered.
-              </p>
+              hasCadetFilter && selectedCadetSummary ? (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-2 text-center">
+                    <div>
+                      <div className="text-lg font-semibold tabular-nums">{pct(cohortCombinedPercent)}</div>
+                      <div className="text-[11px] text-muted-foreground">Combined attendance % (all PMT types)</div>
+                    </div>
+                    <div>
+                      <div className="text-lg font-semibold tabular-nums">
+                        {(selectedCadetSummary.pt.standing === "Good" ? 0 : 1) + (selectedCadetSummary.llabFm.standing === "Good" ? 0 : 1)}
+                      </div>
+                      <div className="text-[11px] text-muted-foreground">Buckets below Good</div>
+                    </div>
+                  </div>
+                  <CadetBucketStats label="D&C / Other" tally={selectedCadetSummary.other} hasThreshold={false} />
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Hidden -- this splits standing counts between PT and LLAB/FM, which doesn't apply once a specific PMT type is filtered.
+                </p>
+              )
             ) : (
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={distribution} margin={chartMargin}>

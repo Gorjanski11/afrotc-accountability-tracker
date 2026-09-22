@@ -1,12 +1,14 @@
-import { ATTENDANCE_WEIGHT, bucketForEventType, standingForPercent, type Standing } from "./constants";
+import { ATTENDANCE_WEIGHT, STANDING_THRESHOLDS, bucketForEventType, standingForPercent, type AttendanceStatus, type Standing } from "./constants";
 import type { Attendance, ExtraEvent, PmtEvent } from "./types";
 
 export interface BucketTally {
   weightedSum: number;
-  /** Excludes AE/PE -- they're removed from the denominator entirely, not counted as 0. */
+  /** Excludes PE (still pending review) -- AE counts here just like P, per ATTENDANCE_WEIGHT. */
   countedEvents: number;
   percent: number | undefined;
   standing: Standing | undefined;
+  /** Raw count per status, regardless of whether that status counts toward the weighted percent -- e.g. a still-pending PE shows up here even though it isn't in countedEvents yet. */
+  statusCounts: Record<AttendanceStatus, number>;
 }
 
 export interface CadetAttendanceSummary {
@@ -17,7 +19,7 @@ export interface CadetAttendanceSummary {
 }
 
 function emptyTally(): BucketTally {
-  return { weightedSum: 0, countedEvents: 0, percent: undefined, standing: undefined };
+  return { weightedSum: 0, countedEvents: 0, percent: undefined, standing: undefined, statusCounts: { P: 0, L: 0, A: 0, AE: 0, PE: 0 } };
 }
 
 function finalize(t: BucketTally, hasThreshold: boolean): BucketTally {
@@ -39,16 +41,30 @@ export function computeCadetAttendanceSummary(
     if (record.cadetId !== cadetId) continue;
     const event = pmtEventsById.get(record.pmtEventId);
     if (!event) continue;
-    const weight = ATTENDANCE_WEIGHT[record.status];
-    if (weight === undefined) continue;
 
     const bucket = bucketForEventType(event.eventType);
     const tally = bucket === "PT" ? pt : bucket === "LLAB_FM" ? llabFm : other;
+    tally.statusCounts[record.status] += 1;
+
+    const weight = ATTENDANCE_WEIGHT[record.status];
+    if (weight === undefined) continue;
     tally.weightedSum += weight;
     tally.countedEvents += 1;
   }
 
   return { pt: finalize(pt, true), llabFm: finalize(llabFm, true), other: finalize(other, false) };
+}
+
+/**
+ * How many more unexcused Absences (weight 0) this bucket could take on top of what's already
+ * recorded before the percent would drop below the "Good" standing threshold. Undefined once
+ * there's no data yet to base it on; 0 means the cadet is already at or below the line, so even one
+ * more unexcused absence keeps/pushes them out of Good.
+ */
+export function absencesRemainingForGoodStanding(tally: BucketTally): number | undefined {
+  if (tally.countedEvents === 0) return undefined;
+  const maxAdditionalAbsences = tally.weightedSum / STANDING_THRESHOLDS.good - tally.countedEvents;
+  return Math.max(0, Math.floor(maxAdditionalAbsences));
 }
 
 /**

@@ -64,15 +64,17 @@ export const ATTENDANCE_STATUS_LABELS: Record<AttendanceStatus, string> = {
 };
 
 /**
- * Weight per status for percentage math. AE/PE are `undefined` -- excluded entirely from both the
- * numerator and denominator, not counted as 0 (Section 5): an excused absence shrinks the total
- * events measured rather than counting against the cadet.
+ * Weight per status for percentage math. An Approved Excuse (AE) counts exactly like a Present --
+ * the absence is still recorded and shown as "Approved Excuse" everywhere in the UI, but it never
+ * costs the cadet toward standing/percent once accepted. PE (still pending review) stays
+ * `undefined` -- excluded entirely from both the numerator and denominator until it's resolved one
+ * way or the other, so an in-review excuse doesn't yet count for or against the cadet.
  */
 export const ATTENDANCE_WEIGHT: Record<AttendanceStatus, number | undefined> = {
   P: 1,
   L: 0.5,
   A: 0,
-  AE: undefined,
+  AE: 1,
   PE: undefined,
 };
 
