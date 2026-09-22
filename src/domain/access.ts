@@ -6,7 +6,13 @@ import type { RosterPerson } from "./types";
  * the roster (no "position"/title data is tracked yet). Add an email here and redeploy to grant
  * someone access without needing to change their roster group.
  */
-export const ALWAYS_AUTHORIZED_EMAILS = ["jorge.cortes4@upr.edu"];
+export const ALWAYS_AUTHORIZED_EMAILS = [
+  "jorge.cortes4@upr.edu",
+  "hector.belen@upr.edu", // Belen Caraballo, Hector -- MSG Group Commander
+  "edgardo.puente.afrotc@upr.edu", // Puente Bonilla, Edgardo -- WSG Group Commander
+  "lorean.delgado@upr.edu", // Delgado Ortiz, Lorean -- OG Group Commander
+  "john.santiago12@upr.edu", // Santiago Ruiz, John -- TRG Group Commander (already covered by the TRG group rule below, listed for clarity)
+];
 
 /**
  * Who may sign into this cadre-only site: anyone individually listed above, plus anyone whose
