@@ -1,5 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { connectFirestoreEmulator, getFirestore } from "firebase/firestore";
+import { connectAuthEmulator, getAuth } from "firebase/auth";
 
 // Same Firebase project/database as the TO's site (afrotc-training-tracker) -- this site reads
 // the shared `cadets` roster and `pmtEvents` calendar, and owns its own attendance/extraEvents/
@@ -18,9 +19,11 @@ const firebaseConfig = {
 
 export const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
+export const auth = getAuth(app);
 
 // In local dev, talk to the Firebase Local Emulator Suite instead of production so testing never
 // touches real cadet data. Start it with `firebase emulators:start` before `npm run dev`.
 if (import.meta.env.DEV && import.meta.env.VITE_USE_FIREBASE_EMULATOR === "true") {
   connectFirestoreEmulator(db, "127.0.0.1", 8080);
+  connectAuthEmulator(auth, "http://127.0.0.1:9099");
 }

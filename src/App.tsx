@@ -2,7 +2,8 @@ import { motion } from "motion/react";
 import { useState } from "react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ClipboardCheck, LayoutDashboard, Users, CalendarDays, BarChart2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { ClipboardCheck, LayoutDashboard, Users, CalendarDays, BarChart2, LogOut } from "lucide-react";
 import { useRoster } from "./hooks/useRoster";
 import { usePmtEvents } from "./hooks/usePmtEvents";
 import { useExtraEvents } from "./hooks/useExtraEvents";
@@ -10,6 +11,8 @@ import { useAttendance } from "./hooks/useAttendance";
 import { useTrainingObjectivesCatalog } from "./hooks/useTrainingObjectivesCatalog";
 import { useAutoFailCompletions } from "./hooks/useAutoFailCompletions";
 import { useAbsenceMemoAssignments } from "./hooks/useAbsenceMemoAssignments";
+import { useAuth } from "./hooks/useAuth";
+import { SignInScreen } from "./components/SignInScreen";
 import { DashboardScreen } from "./screens/DashboardScreen";
 import { RosterScreen } from "./screens/RosterScreen";
 import { EventsScreen } from "./screens/EventsScreen";
@@ -26,10 +29,11 @@ function AnimatedPanel({ children }: { children: React.ReactNode }) {
   );
 }
 
-// No login of any kind -- open to anyone with the link, same as the TO's site. Same Firebase
-// project/database: reads/writes the shared `cadets` roster and `pmtEvents` calendar, owns its
-// own attendance/extraEvents/extraEventAttendance collections.
+// Cadre-only login (Email/Password, accounts provisioned individually -- no public sign-up). Same
+// Firebase project/database as the TO's site: reads/writes the shared `cadets` roster and
+// `pmtEvents` calendar, owns its own attendance/extraEvents/extraEventAttendance collections.
 function App() {
+  const { user, authLoading, signIn, signOut } = useAuth();
   const rosterState = useRoster();
   const eventsState = usePmtEvents();
   const extraEventsState = useExtraEvents();
@@ -55,6 +59,18 @@ function App() {
     catalogState.error ||
     absenceMemoAssignmentsState.error;
 
+  if (authLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background">
+        <Skeleton className="h-10 w-48" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <SignInScreen signIn={signIn} />;
+  }
+
   return (
     <div className="flex h-screen flex-col">
       <header className="flex items-center justify-between border-b border-input bg-background px-8 py-3">
@@ -66,6 +82,12 @@ function App() {
             <h1 className="text-xl font-semibold">Borinkeneers Accountability Tracker</h1>
             <span className="text-sm text-muted-foreground">PT / LLAB / FM attendance</span>
           </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-muted-foreground">{user.email}</span>
+          <Button variant="ghost" size="icon" onClick={() => void signOut()} aria-label="Sign out">
+            <LogOut className="h-4 w-4" />
+          </Button>
         </div>
       </header>
 
