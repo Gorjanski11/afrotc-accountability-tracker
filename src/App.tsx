@@ -78,7 +78,7 @@ function App() {
     return (
       <div className="flex h-screen flex-col items-center justify-center gap-3 bg-background p-6 text-center">
         <p className="text-sm text-destructive">
-          Your account ({user.email}) isn't authorized for the Accountability Tracker. Contact TRG if you believe this is a mistake.
+          Your account ({user.email}) isn't authorized for the Accountability Tracker. Contact C/Maj Cortes Garay if you believe this is a mistake.
         </p>
         <Button variant="secondary" onClick={() => void signOut()}>
           <LogOut className="h-4 w-4" />
